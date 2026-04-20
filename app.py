@@ -36,6 +36,8 @@ st.markdown("""
         padding-bottom: 0.4rem; margin-bottom: 1rem; margin-top: 1.5rem;
     }
     div[data-testid="stMetric"] label { font-size: 0.75rem !important; }
+    /* Force dark text on all coloured signal banners — readable in dark mode */
+    .signal-banner { color: #111827 !important; font-weight: 600; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -299,7 +301,7 @@ def render_action_panel(current_price, bear, base, bull, ticker, currency=""):
 
     st.markdown(
         f'<div style="background:{colour};border-radius:10px;padding:0.9rem 1.2rem;'
-        f'margin:0.5rem 0 1rem;font-weight:600;font-size:0.95rem;">{msg}</div>',
+        f'margin:0.5rem 0 1rem;font-weight:600;font-size:0.95rem;color:#111827;">{msg}</div>',
         unsafe_allow_html=True
     )
 
@@ -544,11 +546,18 @@ st.caption(f"Analysing: **{ticker}** — {asset_type}")
 if data:
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Company", data["name"][:28] if data["name"] else "—")
-    c2.metric("Live price", fmt_price(data["price"], data["currency"]))
-    c3.metric("Sector", data["sector"])
-    c4.metric("P/E ratio", f"{data['pe']:.1f}x" if data["pe"] else "—")
+    live_price = data.get("price")
+    if live_price:
+        price_display = fmt_price(live_price, data["currency"])
+    else:
+        price_display = "—"
+    c2.metric("Live price", price_display)
+    c3.metric("Sector", data["sector"] if data.get("sector") and data["sector"] != "—" else "—")
+    c4.metric("P/E ratio", f"{data['pe']:.1f}x" if data.get("pe") else "—")
+    if not live_price:
+        st.info("💡 **Live price unavailable** — enter your Finnhub API key in the sidebar to enable live prices and the price history chart. Get a free key at [finnhub.io](https://finnhub.io) (takes 1 minute, no credit card).")
 else:
-    st.warning("Could not fetch live data — enter inputs manually below.")
+    st.info("💡 **Enter your Finnhub API key** in the sidebar for live prices. Get a free key at [finnhub.io](https://finnhub.io). You can still use the valuation models manually without it.")
 
 st.divider()
 
@@ -596,7 +605,7 @@ if asset_type == "REIT":
         c3.metric("Bull fair value", fmt_price(ffo_results["Bull"]), delta=f"{(ffo_results['Bull'] - current_price) / current_price * 100:.1f}% vs price")
         sig, css = signal(current_price, ffo_results["Bear"], ffo_results["Bull"])
         c4.metric("Current price", fmt_price(current_price))
-        st.markdown(f'<div class="metric-card {css}" style="margin-top:0.5rem"><div class="label">Signal</div><div class="value">{sig}</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="metric-card {css}" style="margin-top:0.5rem;color:#111827;"><div class="label">Signal</div><div class="value" style="color:#111827;">{sig}</div></div>', unsafe_allow_html=True)
 
     with tab2:
         if yield_results:
@@ -608,7 +617,7 @@ if asset_type == "REIT":
             if bv and blv:
                 sig, css = signal(current_price, bv, blv)
                 c4.metric("Current price", fmt_price(current_price))
-                st.markdown(f'<div class="metric-card {css}" style="margin-top:0.5rem"><div class="label">Signal</div><div class="value">{sig}</div></div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="metric-card {css}" style="margin-top:0.5rem;color:#111827;"><div class="label">Signal</div><div class="value" style="color:#111827;">{sig}</div></div>', unsafe_allow_html=True)
 
     # Range chart
     st.markdown('<div class="section-header">Fair Value Range</div>', unsafe_allow_html=True)
@@ -687,7 +696,7 @@ elif asset_type == "Bank":
         if pb_results["Bear"] and pb_results["Bull"]:
             sig, css = signal(current_price, pb_results["Bear"], pb_results["Bull"])
             c4.metric("Current price", fmt_price(current_price))
-            st.markdown(f'<div class="metric-card {css}" style="margin-top:0.5rem"><div class="label">Signal</div><div class="value">{sig}</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="metric-card {css}" style="margin-top:0.5rem;color:#111827;"><div class="label">Signal</div><div class="value" style="color:#111827;">{sig}</div></div>', unsafe_allow_html=True)
 
         # Show P/B ratios
         st.markdown("**Implied P/B multiples**")
@@ -707,7 +716,7 @@ elif asset_type == "Bank":
         c4.metric("Current price", fmt_price(current_price))
         if bv and blv:
             sig, css = signal(current_price, bv, blv)
-            st.markdown(f'<div class="metric-card {css}" style="margin-top:0.5rem"><div class="label">Signal</div><div class="value">{sig}</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="metric-card {css}" style="margin-top:0.5rem;color:#111827;"><div class="label">Signal</div><div class="value" style="color:#111827;">{sig}</div></div>', unsafe_allow_html=True)
 
     chart_data = pd.DataFrame({
         "Scenario": ["Bear", "Base", "Bull", "Current"],
@@ -781,7 +790,7 @@ elif asset_type == "Company (DCF)":
     c4.metric("Current price", fmt_price(current_price))
 
     sig, css = signal(current_price, dcf_results["Bear"], dcf_results["Bull"])
-    st.markdown(f'<div class="metric-card {css}" style="margin-top:0.5rem"><div class="label">Signal</div><div class="value">{sig}</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-card {css}" style="margin-top:0.5rem;color:#111827;"><div class="label">Signal</div><div class="value" style="color:#111827;">{sig}</div></div>', unsafe_allow_html=True)
 
     # Terminal value breakdown
     st.markdown('<div class="section-header">Value Breakdown (Base Case)</div>', unsafe_allow_html=True)
@@ -875,7 +884,7 @@ elif asset_type == "Company (DDM)":
 
     if bv and blv:
         sig, css = signal(current_price, bv, blv)
-        st.markdown(f'<div class="metric-card {css}" style="margin-top:0.5rem"><div class="label">Signal</div><div class="value">{sig}</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="metric-card {css}" style="margin-top:0.5rem;color:#111827;"><div class="label">Signal</div><div class="value" style="color:#111827;">{sig}</div></div>', unsafe_allow_html=True)
     else:
         st.error("One or more scenarios invalid — cost of equity must be greater than dividend growth rate.")
 
