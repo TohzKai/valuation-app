@@ -327,7 +327,13 @@ def fetch_buy_sell_pressure(ticker: str) -> dict:
                     "low52": low52,
                     "high52": high52,
                     "current": current,
-                    "avg_vol": meta.get("regularMarketVolume", 0),
+                    "prev_close": meta.get("previousClose") or meta.get("chartPreviousClose"),
+                    "ask": meta.get("ask"),
+                    "bid": meta.get("bid"),
+                    "day_high": meta.get("regularMarketDayHigh"),
+                    "day_low": meta.get("regularMarketDayLow"),
+                    "volume": meta.get("regularMarketVolume", 0),
+                    "avg_vol": meta.get("averageDailyVolume10Day", 0),
                 }
     except Exception:
         pass
@@ -512,6 +518,11 @@ def render_action_panel(current_price, bear, base, bull, ticker, currency=""):
 
         chart = (band + price_line + bear_line + base_line + bull_line).properties(
             height=320
+        ).encode(
+            x=alt.X("Date:T", scale=alt.Scale(domain=[
+                hist_reset["Date"].min().isoformat(),
+                hist_reset["Date"].max().isoformat()
+            ]))
         ).interactive()
 
         st.altair_chart(chart, use_container_width=True)
@@ -679,23 +690,34 @@ data = sgx_enrich(ticker, data)  # fill missing sector/PE/fundamentals from look
 st.title("📊 Stock Valuation Tool")
 st.caption(f"Analysing: **{ticker}** — {asset_type}")
 
+# Fetch market data for header (ask/bid/prev close) — uses Yahoo, no key needed
+_mkt = fetch_buy_sell_pressure(ticker)
+
 if data:
+    # Use prev close from market data if Finnhub price is empty
+    live_price = data.get("price") or (_mkt.get("prev_close") if _mkt else None)
+    if live_price and not data.get("price"):
+        data["price"] = live_price  # backfill so current_price override uses it
+
+    curr = data.get("currency", "SGD")
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Company", data.get("name")[:28] if data.get("name") else "—")
-    live_price = data.get("price")
-    if live_price:
-        price_display = fmt_price(live_price, data.get("currency"))
-    else:
-        price_display = "—"
-    c2.metric("Live price", price_display)
-    c3.metric("Sector", data.get("sector") if data.get("sector") and data.get("sector") != "—" else "—")
-    c4.metric("P/E ratio", f"{data['pe']:.1f}x" if data.get("pe") else "—")
+    c1.metric("Company", data.get("name","")[:28] or "—")
+    price_label = "Live price" if data.get("price") else "Prev close"
+    c2.metric(price_label, fmt_price(live_price, curr) if live_price else "—")
+    c3.metric("Sector", data.get("sector") or "—")
+    c4.metric("P/E ratio", f"{data.get('pe'):.1f}x" if data.get("pe") else "—")
+
+    # Ask / Bid / Day range row
+    if _mkt:
+        m1, m2, m3, m4, m5 = st.columns(5)
+        m1.metric("Bid", fmt_price(_mkt.get("bid"), curr) if _mkt.get("bid") else "—")
+        m2.metric("Ask", fmt_price(_mkt.get("ask"), curr) if _mkt.get("ask") else "—")
+        m3.metric("Day high", fmt_price(_mkt.get("day_high"), curr) if _mkt.get("day_high") else "—")
+        m4.metric("Day low", fmt_price(_mkt.get("day_low"), curr) if _mkt.get("day_low") else "—")
+        m5.metric("Prev close", fmt_price(_mkt.get("prev_close"), curr) if _mkt.get("prev_close") else "—")
+
     if not live_price:
-        _k = st.session_state.get("finnhub_key","")
-        if _k:
-            st.warning(f"⚠️ Finnhub key found but price returned 0 or empty. This usually means: (1) SGX market is currently closed — price will show during trading hours 9am–5pm SGT, OR (2) the ticker `{ticker}` maps to `{_finnhub_symbol(ticker)}` on Finnhub which may not be supported. Try clicking 🗑️ Clear cache then 🔄 Fetch.")
-        else:
-            st.info("💡 **Live price unavailable** — enter your Finnhub API key in the sidebar to enable live prices and the price history chart. Get a free key at [finnhub.io](https://finnhub.io) (takes 1 minute, no credit card).")
+        st.info("💡 Live price unavailable — using manual override. Get a free Finnhub key at [finnhub.io](https://finnhub.io) for live prices.")
 else:
     st.info("💡 **Enter your Finnhub API key** in the sidebar for live prices. Get a free key at [finnhub.io](https://finnhub.io). You can still use the valuation models manually without it.")
 
@@ -715,7 +737,7 @@ if asset_type == "REIT":
                               help="Funds From Operations per unit. Found in REIT annual reports.")
         dpu = st.number_input("DPU / Distribution per unit (annual)", value=0.10, step=0.01, format="%.3f",
                               help="Total annual distribution per unit paid to unitholders.")
-        current_price = st.number_input("Current price (override)", value=float(data.get("price") or 0) if data and data.get("price") else 1.20,
+        current_price = st.number_input("Current price (override)", value=float(data.get("price") or 1.20) if data and data.get("price") else 1.20,
                                         step=0.01, format="%.3f")
 
     with col_r:
@@ -801,7 +823,7 @@ elif asset_type == "Bank":
                               step=0.5, format="%.1f") / 100
         dps = st.number_input("Dividend per share (annual)", value=float(data.get("dps")) if data and data.get("dps") else 0.50,
                               step=0.05, format="%.2f")
-        current_price = st.number_input("Current price (override)", value=float(data.get("price") or 0) if data and data.get("price") else 10.0,
+        current_price = st.number_input("Current price (override)", value=float(data.get("price") or 10.0) if data and data.get("price") else 10.0,
                                         step=0.05, format="%.2f")
 
     with col_r:
@@ -894,7 +916,7 @@ elif asset_type == "Company (DCF)":
         st.markdown("**Fundamentals**")
         fcf = st.number_input("Free Cash Flow per share (annual, $)", value=2.50, step=0.10, format="%.2f",
                               help="FCF = Operating Cash Flow − Capex. Divide by shares outstanding.")
-        current_price = st.number_input("Current price (override)", value=float(data.get("price") or 0) if data and data.get("price") else 50.0,
+        current_price = st.number_input("Current price (override)", value=float(data.get("price") or 50.0) if data and data.get("price") else 50.0,
                                         step=0.50, format="%.2f")
         years = st.slider("Projection period (years)", 5, 15, 10)
         terminal_g = st.slider("Terminal growth rate (%)", 0.5, 4.0, 2.5, 0.1,
@@ -988,7 +1010,7 @@ elif asset_type == "Company (DDM)":
         st.markdown("**Fundamentals**")
         dps_val = st.number_input("Dividend per share — current (annual)", value=float(data.get("dps")) if data and data.get("dps") else 1.20,
                                   step=0.05, format="%.2f")
-        current_price = st.number_input("Current price (override)", value=float(data.get("price") or 0) if data and data.get("price") else 25.0,
+        current_price = st.number_input("Current price (override)", value=float(data.get("price") or 25.0) if data and data.get("price") else 25.0,
                                         step=0.25, format="%.2f")
         payout = st.slider("Payout ratio (%)", 20, 100, 60,
                            help="% of earnings paid as dividends. Helps assess sustainability.")
