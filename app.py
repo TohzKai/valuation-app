@@ -492,16 +492,25 @@ def render_action_panel(current_price, bear, base, bull, ticker, currency=""):
 
         base_chart = alt.Chart(hist_reset)
 
-        band = base_chart.mark_area(opacity=0.15, color="#2563eb").encode(
+        band = base_chart.mark_area(opacity=0.12, color="#3b82f6").encode(
             x=alt.X("Date:T", title=""),
             y=alt.Y("Buy zone:Q", title="Price", scale=alt.Scale(zero=False)),
             y2="Trim:Q"
         )
+        # Current price horizontal line
+        cur_df = hist_reset.copy()
+        cur_df["Current"] = cur
+        cur_line = alt.Chart(cur_df).mark_line(
+            color="#f59e0b", strokeDash=[6,3], strokeWidth=1.5, opacity=0.6
+        ).encode(x="Date:T", y="Current:Q")
 
-        price_line = base_chart.mark_line(color="#1e293b", strokeWidth=2).encode(
+        price_line = base_chart.mark_line(color="#f59e0b", strokeWidth=2.5).encode(
             x="Date:T",
             y=alt.Y("Price:Q", scale=alt.Scale(zero=False)),
-            tooltip=["Date:T", "Price:Q"]
+            tooltip=[
+                alt.Tooltip("Date:T", title="Date"),
+                alt.Tooltip("Price:Q", title="Price", format=".2f")
+            ]
         )
 
         bear_line = base_chart.mark_line(color="#dc2626", strokeDash=[4,2], strokeWidth=1.5).encode(
@@ -516,7 +525,7 @@ def render_action_panel(current_price, bear, base, bull, ticker, currency=""):
             x="Date:T", y="Trim:Q"
         )
 
-        chart = (band + price_line + bear_line + base_line + bull_line).properties(
+        chart = (band + cur_line + price_line + bear_line + base_line + bull_line).properties(
             height=320
         ).encode(
             x=alt.X("Date:T", scale=alt.Scale(domain=[
@@ -526,7 +535,7 @@ def render_action_panel(current_price, bear, base, bull, ticker, currency=""):
         ).interactive()
 
         st.altair_chart(chart, use_container_width=True)
-        st.caption("🔴 BUY line (bear case)  ·  🔵 TARGET line (base case)  ·  🟢 TRIM line (bull case)  ·  ⬛ Actual price")
+        st.caption("🟡 Actual price  ·  🔴 BUY below (bear case)  ·  🔵 TARGET (base case)  ·  🟢 TRIM (bull case)")
 
         # How many days was stock in buy zone?
         days_in_buy = (hist["Close"] <= bear).sum()
@@ -647,8 +656,7 @@ with st.sidebar:
 
     st.divider()
 
-    st.markdown("**🔑 Finnhub API Key**")
-    # Try secrets first (permanent), then session state
+    # Load API key — secrets first, then session state
     _saved_key = ""
     try:
         _saved_key = st.secrets.get("FINNHUB_API_KEY", "")
@@ -656,19 +664,23 @@ with st.sidebar:
         pass
     _saved_key = _saved_key or st.session_state.get("finnhub_key", "")
 
-    api_key_input = st.text_input(
-        "API Key",
-        value=_saved_key,
-        type="password",
-        placeholder="Paste your free Finnhub key",
-        help="Get free key at finnhub.io. To save permanently: Streamlit Cloud → Settings → Secrets → add FINNHUB_API_KEY = \"your_key\""
-    )
-    if api_key_input:
-        st.session_state["finnhub_key"] = api_key_input
     if _saved_key:
-        st.caption("✅ Key loaded from secrets")
-    elif api_key_input:
-        st.caption("⚡ Key active this session only. Save permanently in Streamlit Secrets.")
+        # Key already loaded — show minimal status, no input needed
+        st.session_state["finnhub_key"] = _saved_key
+        with st.expander("🔑 API Key ✅", expanded=False):
+            st.caption("Key loaded from Streamlit Secrets. Live prices and charts enabled.")
+            if st.button("Change key", use_container_width=True):
+                st.session_state["show_key_input"] = True
+    else:
+        st.markdown("**🔑 Finnhub API Key**")
+        st.caption("Free key at [finnhub.io](https://finnhub.io) — needed for live prices")
+        api_key_input = st.text_input(
+            "API Key", value="", type="password",
+            placeholder="Paste your free Finnhub key"
+        )
+        if api_key_input:
+            st.session_state["finnhub_key"] = api_key_input
+            st.caption("⚡ Active this session. Save in Streamlit Secrets to make permanent.")
 
     col_a, col_b = st.columns(2)
     fetch_btn = col_a.button("🔄 Fetch", use_container_width=True)
