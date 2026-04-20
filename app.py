@@ -40,85 +40,119 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
+# ── SGX stock reference table (Yahoo Finance missing data fallback) ──────────
+# Yahoo Finance does not reliably return sector/PE/fundamentals for SGX stocks.
+# This table fills in known data for common SG stocks. Update after each earnings.
+SGX_DATA = {
+    # Banks
+    "O39.SI": {"name": "OCBC Bank",         "sector": "Banking",          "pe": 9.8,  "book": 9.80,  "roe": 0.135, "dps": 0.88, "beta": 0.75},
+    "D05.SI": {"name": "DBS Group",          "sector": "Banking",          "pe": 10.2, "book": 19.20, "roe": 0.180, "dps": 2.16, "beta": 0.85},
+    "U11.SI": {"name": "UOB",                "sector": "Banking",          "pe": 9.5,  "book": 25.10, "roe": 0.130, "dps": 1.70, "beta": 0.80},
+    # REITs
+    "C38U.SI": {"name": "CapitaLand Int. REIT", "sector": "REIT - Retail", "pe": 18.5, "book": 2.10,  "roe": 0.055, "dps": 0.108, "beta": 0.70},
+    "A17U.SI": {"name": "CapitaLand Ascendas REIT", "sector": "REIT - Industrial", "pe": 20.1, "book": 1.85, "roe": 0.050, "dps": 0.153, "beta": 0.65},
+    "ME8U.SI": {"name": "Mapletree Ind. Trust", "sector": "REIT - Industrial", "pe": 17.8, "book": 1.75, "roe": 0.052, "dps": 0.134, "beta": 0.68},
+    "M44U.SI": {"name": "Mapletree Log. Trust", "sector": "REIT - Industrial", "pe": 16.5, "book": 1.42, "roe": 0.048, "dps": 0.090, "beta": 0.62},
+    "N2IU.SI": {"name": "Mapletree Pan Asia REIT", "sector": "REIT - Diversified", "pe": 15.2, "book": 1.55, "roe": 0.045, "dps": 0.085, "beta": 0.70},
+    "BUOU.SI": {"name": "Frasers L&I Trust",  "sector": "REIT - Industrial", "pe": 14.8, "book": 1.10, "roe": 0.047, "dps": 0.076, "beta": 0.65},
+    "J91U.SI": {"name": "Parkway Life REIT",  "sector": "REIT - Healthcare", "pe": 22.0, "book": 2.35, "roe": 0.060, "dps": 0.142, "beta": 0.45},
+    # Telcos / Others
+    "Z74.SI":  {"name": "Singtel",            "sector": "Telecom",          "pe": 22.0, "book": 1.85,  "roe": 0.062, "dps": 0.15,  "beta": 0.55},
+    "BN4.SI":  {"name": "Keppel Corp",        "sector": "Industrials",      "pe": 12.5, "book": 6.20,  "roe": 0.095, "dps": 0.33,  "beta": 0.90},
+    "Y92.SI":  {"name": "Thai Bev",           "sector": "Consumer Staples", "pe": 14.2, "book": 0.52,  "roe": 0.120, "dps": 0.045, "beta": 0.60},
+    # US stocks (Yahoo works fine but added for completeness)
+    "O":    {"name": "Realty Income",         "sector": "REIT - Retail",    "pe": 42.0, "book": 16.50, "roe": 0.030, "dps": 3.07,  "beta": 0.85},
+}
+
+
+def sgx_enrich(ticker: str, data: dict) -> dict:
+    """Patch any missing fields from the SGX lookup table."""
+    ref = SGX_DATA.get(ticker.upper())
+    if not ref:
+        return data
+    if data is None:
+        data = {}
+    # Only fill in what Yahoo couldn't provide
+    for key, val in ref.items():
+        if not data.get(key) or data.get(key) == "—":
+            data[key] = val
+    return data
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
-@st.cache_data(ttl=300)
-def fetch_ticker(ticker: str):
-    """
-    Fetch ticker info using Yahoo Finance query2 API directly —
-    works on Streamlit Cloud where yfinance.info is often blocked.
-    """
-    import requests, json
+def _finnhub_symbol(ticker: str) -> str:
+    """Convert SGX ticker format for Finnhub. O39.SI -> O39:SP, D05.SI -> D05:SP"""
+    if ticker.endswith(".SI"):
+        return ticker.replace(".SI", ":SP")
+    return ticker  # US tickers work as-is
 
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-        "Accept": "application/json",
-    }
 
-    # --- Method 1: Yahoo Finance query2 (works on cloud) ---
+def _get_api_key() -> str:
+    """Get Finnhub API key from Streamlit secrets or session state."""
     try:
-        url = f"https://query2.finance.yahoo.com/v8/finance/chart/{ticker}?interval=1d&range=1d"
-        r = requests.get(url, headers=headers, timeout=10)
-        if r.status_code == 200:
-            js = r.json()
-            meta = js.get("chart", {}).get("result", [{}])[0].get("meta", {})
-            price = meta.get("regularMarketPrice") or meta.get("previousClose")
-            currency = meta.get("currency", "")
-            # Get fundamentals + sector + P/E from summary endpoint
-            modules = "defaultKeyStatistics,summaryDetail,financialData,price,assetProfile,quoteType"
-            url2 = f"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{ticker}?modules={modules}"
-            r2 = requests.get(url2, headers=headers, timeout=10)
-            info = {}
-            if r2.status_code == 200:
-                js2 = r2.json()
-                result = js2.get("quoteSummary", {}).get("result", [{}])[0] or {}
-                ks  = result.get("defaultKeyStatistics", {})
-                sd  = result.get("summaryDetail", {})
-                fd  = result.get("financialData", {})
-                pr  = result.get("price", {})
-                ap  = result.get("assetProfile", {})
-                def v(d, k): return d.get(k, {}).get("raw") if isinstance(d.get(k), dict) else d.get(k)
-                # P/E: trailingPE is most reliably in the price module for SGX
-                pe_val = (v(pr, "trailingPE")
-                          or v(sd, "trailingPE")
-                          or v(ks, "trailingPE"))
-                # Sector: Yahoo often missing for SGX — use quoteType as fallback
-                qt = result.get("quoteType", {})
-                sector_val = (ap.get("sector")
-                              or ap.get("industry")
-                              or qt.get("quoteType")
-                              or "—")
-                # Map quoteType codes to readable labels
-                sector_map = {
-                    "EQUITY": "Equity", "ETF": "ETF", "MUTUALFUND": "Fund",
-                    "FUTURE": "Futures", "OPTION": "Options", "CURRENCY": "FX",
-                }
-                if sector_val in sector_map:
-                    sector_val = sector_map[sector_val]
-                info = {
-                    "price":    price or v(pr, "regularMarketPrice"),
-                    "name":     v(pr, "longName") or v(pr, "shortName") or ticker,
-                    "sector":   sector_val,
-                    "eps":      v(ks, "trailingEps") or v(fd, "revenuePerShare"),
-                    "dps":      v(sd, "dividendRate") or v(sd, "trailingAnnualDividendRate"),
-                    "book":     v(ks, "bookValue"),
-                    "roe":      v(fd, "returnOnEquity"),
-                    "beta":     v(ks, "beta") or v(sd, "beta"),
-                    "pe":       pe_val,
-                    "pb":       v(ks, "priceToBook"),
-                    "mktcap":   v(pr, "marketCap"),
-                    "currency": currency or v(pr, "currency") or "",
-                }
-            else:
-                info = {"price": price, "name": ticker, "sector": "—",
-                        "eps": None, "dps": None, "book": None, "roe": None,
-                        "beta": None, "pe": None, "pb": None, "mktcap": None,
-                        "currency": currency}
-            if info.get("price"):
-                return info
+        return st.secrets["FINNHUB_API_KEY"]
     except Exception:
-        pass
+        return st.session_state.get("finnhub_key", "")
 
-    # --- Method 2: yfinance fallback (works locally) ---
+
+@st.cache_data(ttl=300)
+def fetch_ticker(ticker: str, api_key: str = ""):
+    """
+    Fetch price + fundamentals via Finnhub (works on Streamlit Cloud).
+    Falls back to yfinance for local use if no API key.
+    """
+    import requests
+
+    key = api_key or _get_api_key()
+
+    # ── Method 1: Finnhub (cloud-safe) ───────────────────────────────────────
+    if key:
+        fh_sym = _finnhub_symbol(ticker)
+        base = "https://finnhub.io/api/v1"
+        h = {"X-Finnhub-Token": key}
+        try:
+            # Quote (live price)
+            q = requests.get(f"{base}/quote?symbol={fh_sym}", headers=h, timeout=8).json()
+            price = q.get("c") or q.get("pc")  # current or previous close
+
+            # Company profile (name, sector, currency)
+            p = requests.get(f"{base}/stock/profile2?symbol={fh_sym}", headers=h, timeout=8).json()
+            name     = p.get("name", ticker)
+            sector   = p.get("finnhubIndustry") or p.get("gsector") or "—"
+            currency = p.get("currency", "")
+
+            # Basic financials (PE, book, beta, etc.)
+            f = requests.get(f"{base}/stock/metric?symbol={fh_sym}&metric=all", headers=h, timeout=8).json()
+            m = f.get("metric", {})
+
+            pe   = m.get("peBasicExclExtraTTM") or m.get("peTTM")
+            book = m.get("bookValuePerShareQuarterly") or m.get("bookValuePerShareAnnual")
+            roe  = m.get("roeTTM")
+            beta = m.get("beta")
+            dps  = m.get("dividendPerShareAnnual")
+            pb   = m.get("pbQuarterly") or m.get("pbAnnual")
+            eps  = m.get("epsTTM")
+
+            if roe: roe = roe / 100  # Finnhub gives ROE as %, convert to decimal
+
+            return {
+                "price":    price,
+                "name":     name,
+                "sector":   sector,
+                "eps":      eps,
+                "dps":      dps,
+                "book":     book,
+                "roe":      roe,
+                "beta":     beta,
+                "pe":       pe,
+                "pb":       pb,
+                "mktcap":   p.get("marketCapitalization"),
+                "currency": currency,
+            }
+        except Exception:
+            pass
+
+    # ── Method 2: yfinance (local fallback, often blocked on cloud) ───────────
     try:
         t = yf.Ticker(ticker)
         info = t.info
@@ -150,34 +184,35 @@ def fetch_ticker(ticker: str):
 
 
 @st.cache_data(ttl=3600)
-def fetch_price_history(ticker: str, period: str = "2y"):
+def fetch_price_history(ticker: str, period: str = "2y", api_key: str = ""):
     """
-    Fetch OHLC history — tries direct Yahoo API first, yfinance second.
+    Fetch daily close history. Finnhub first, yfinance fallback.
     """
     import requests
+    from datetime import datetime, timedelta
 
-    headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
+    key = api_key or _get_api_key()
 
-    # Method 1: direct Yahoo chart API
-    try:
-        url = f"https://query2.finance.yahoo.com/v8/finance/chart/{ticker}?interval=1d&range={period}"
-        r = requests.get(url, headers=headers, timeout=15)
-        if r.status_code == 200:
+    # ── Method 1: Finnhub candles ─────────────────────────────────────────────
+    if key:
+        fh_sym = _finnhub_symbol(ticker)
+        t_to   = int(datetime.now().timestamp())
+        days   = 730 if period == "2y" else 365
+        t_from = int((datetime.now() - timedelta(days=days)).timestamp())
+        try:
+            url = f"https://finnhub.io/api/v1/stock/candle?symbol={fh_sym}&resolution=D&from={t_from}&to={t_to}"
+            r = requests.get(url, headers={"X-Finnhub-Token": key}, timeout=15)
             js = r.json()
-            result = js.get("chart", {}).get("result", [None])[0]
-            if result:
-                timestamps = result.get("timestamp", [])
-                closes = result.get("indicators", {}).get("quote", [{}])[0].get("close", [])
-                if timestamps and closes:
-                    dates = pd.to_datetime(timestamps, unit="s")
-                    df = pd.DataFrame({"Close": closes}, index=dates)
-                    df = df.dropna()
-                    df.index = df.index.tz_localize(None)
-                    return df
-    except Exception:
-        pass
+            if js.get("s") == "ok":
+                dates  = pd.to_datetime(js["t"], unit="s")
+                closes = js["c"]
+                df = pd.DataFrame({"Close": closes}, index=dates)
+                df.index = df.index.tz_localize(None)
+                return df.dropna()
+        except Exception:
+            pass
 
-    # Method 2: yfinance fallback
+    # ── Method 2: yfinance fallback ───────────────────────────────────────────
     try:
         t = yf.Ticker(ticker)
         hist = t.history(period=period)
@@ -310,7 +345,7 @@ def render_action_panel(current_price, bear, base, bull, ticker, currency=""):
     # ── Price vs Fair Value Band chart ───────────────────────────────────────
     st.markdown('<div class="section-header">📈 Price vs Fair Value Band (2 Years)</div>', unsafe_allow_html=True)
 
-    hist = fetch_price_history(ticker)
+    hist = fetch_price_history(ticker, api_key=st.session_state.get('finnhub_key',''))
     if hist is not None and not hist.empty:
         hist["Buy zone (bear)"] = bear
         hist["Target (base)"] = base
@@ -467,20 +502,30 @@ with st.sidebar:
     st.markdown("*Bear / Base / Bull scenarios*")
     st.divider()
 
-    ticker_input = st.text_input("Ticker symbol", value="O",
+    ticker_input = st.text_input("Ticker symbol", value="O39.SI",
                                  help="SGX: e.g. C38U.SI (CapitaLand REIT)\nUS: e.g. O (Realty Income)\nBank: e.g. D05.SI (DBS)")
     asset_type = st.selectbox("Asset type", ["REIT", "Bank", "Company (DCF)", "Company (DDM)"])
 
     st.divider()
+
+    st.markdown("**🔑 Finnhub API Key**")
+    st.caption("Free key at [finnhub.io](https://finnhub.io) — required for live data on cloud")
+    api_key_input = st.text_input("API Key", value=st.session_state.get("finnhub_key",""),
+                                   type="password", placeholder="Paste your free Finnhub key")
+    if api_key_input:
+        st.session_state["finnhub_key"] = api_key_input
+
     fetch_btn = st.button("🔄 Fetch live price", use_container_width=True)
 
     st.markdown("---")
-    st.caption("Data via Yahoo Finance · For educational use only · Not financial advice")
+    st.caption("Data via Finnhub · For educational use only · Not financial advice")
 
 
 # ── Fetch data ────────────────────────────────────────────────────────────────
 ticker = ticker_input.strip().upper()
-data = fetch_ticker(ticker) if ticker else None
+_key = st.session_state.get("finnhub_key", "")
+data = fetch_ticker(ticker, api_key=_key) if ticker else None
+data = sgx_enrich(ticker, data)  # fill missing sector/PE/fundamentals from lookup table
 
 # ── Header ────────────────────────────────────────────────────────────────────
 st.title("📊 Stock Valuation Tool")
