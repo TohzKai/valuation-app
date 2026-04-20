@@ -557,6 +557,11 @@ def render_action_panel(current_price, bear, base, bull, ticker, currency=""):
 
 
 
+def fmt_price(v, currency=""):
+    if v is None:
+        return "—"
+    return f"{currency} {v:,.2f}".strip()
+
 def render_ai_analysis(ticker, asset_type, current_price, bear, base, bull,
                         sector, pe, roe, book, dps, beta,
                         buy_pct, range_pos, days_in_buy, days_in_hold, days_above_sell, days_total,
@@ -814,10 +819,6 @@ def render_ai_analysis(ticker, asset_type, current_price, bear, base, bull,
 
     st.caption("⚠️ Rule-based analysis only. Not financial advice. Always verify with primary sources and your own research.")
 
-def fmt_price(v, currency=""):
-    if v is None:
-        return "—"
-    return f"{currency} {v:,.2f}".strip()
 
 
 def signal(price, bear, bull):
@@ -955,9 +956,7 @@ with st.sidebar:
     with st.expander(f"Asset type: **{_auto_type}** (auto)", expanded=False):
         st.caption("Auto-detected. Override if wrong:")
         asset_type = st.selectbox("Asset type", _type_options, index=_auto_idx, label_visibility="collapsed")
-    # Use auto type if user hasn't overridden
-    if "asset_type_override" not in st.session_state:
-        asset_type = _auto_type
+    # asset_type comes from selectbox above (already set)
 
     st.divider()
 
@@ -1221,11 +1220,12 @@ Formula: **Justified P/B = (ROE − g) / (COE − g)**
         """)
     # ── AI Analysis ──────────────────────────────────────────────────────────
     _bs2 = fetch_buy_sell_pressure(ticker)
-    _sig2, _ = signal(current_price, pb_results["Bear"], pb_results["Bull"]) if pb_results.get("Bear") and pb_results.get("Bull") else ("—", "")
-    _dib = int((hist["Close"] <= pb_results["Bear"]).sum()) if hist is not None and not hist.empty and pb_results.get("Bear") else 0
-    _dih = int(((hist["Close"] > pb_results["Bear"]) & (hist["Close"] <= pb_results["Base"])).sum()) if hist is not None and not hist.empty and pb_results.get("Bear") and pb_results.get("Base") else 0
-    _dat = int((hist["Close"] > pb_results["Bull"]).sum()) if hist is not None and not hist.empty and pb_results.get("Bull") else 0
-    _dtot = len(hist) if hist is not None and not hist.empty else 502
+    _sig2, _ = signal(current_price, pb_results.get("Bear",0), pb_results.get("Bull",0)) if pb_results.get("Bear") and pb_results.get("Bull") else ("—", "")
+    _hist2 = fetch_price_history(ticker, api_key=st.session_state.get("finnhub_key",""))
+    _dib = int((_hist2["Close"] <= pb_results.get("Bear",0)).sum()) if _hist2 is not None and not _hist2.empty and pb_results.get("Bear") else 0
+    _dih = int(((_hist2["Close"] > pb_results.get("Bear",0)) & (_hist2["Close"] <= pb_results.get("Base",0))).sum()) if _hist2 is not None and not _hist2.empty and pb_results.get("Bear") and pb_results.get("Base") else 0
+    _dat = int((_hist2["Close"] > pb_results.get("Bull",0)).sum()) if _hist2 is not None and not _hist2.empty and pb_results.get("Bull") else 0
+    _dtot = len(_hist2) if _hist2 is not None and not _hist2.empty else 502
     render_ai_analysis(
         ticker=ticker, asset_type=asset_type, current_price=current_price,
         bear=pb_results.get("Bear",0), base=pb_results.get("Base",0), bull=pb_results.get("Bull",0),
