@@ -555,6 +555,265 @@ def render_action_panel(current_price, bear, base, bull, ticker, currency=""):
 
 
 
+
+
+def render_ai_analysis(ticker, asset_type, current_price, bear, base, bull,
+                        sector, pe, roe, book, dps, beta,
+                        buy_pct, range_pos, days_in_buy, days_in_hold, days_above_sell, days_total,
+                        signal_text):
+    """
+    100% free rule-based investment analysis engine.
+    No API calls. No cost. Runs entirely in Python.
+    """
+    st.markdown('<div class="section-header">📋 Investment Analysis</div>', unsafe_allow_html=True)
+
+    # ── Scoring engine ────────────────────────────────────────────────────────
+    # Each indicator contributes points: positive = bullish, negative = bearish
+    # Final score → overall verdict
+
+    score = 0
+    max_score = 100
+    signals = []
+
+    # 1. VALUATION (40 pts max)
+    if current_price > 0 and bear > 0 and bull > 0:
+        vs_bear = (current_price - bear) / bear * 100
+        vs_base = (current_price - base) / base * 100
+        vs_bull = (current_price - bull) / bull * 100
+
+        if current_price <= bear:
+            score += 40
+            val_verdict = f"STRONGLY UNDERVALUED — trading {abs(vs_bear):.1f}% below the bear case fair value of {fmt_price(bear)}. This is maximum margin of safety territory."
+            val_colour = "#16a34a"
+        elif current_price <= base * 0.95:
+            score += 28
+            val_verdict = f"UNDERVALUED — price is {abs(vs_base):.1f}% below the base case fair value of {fmt_price(base)}. A reasonable entry with good upside."
+            val_colour = "#16a34a"
+        elif current_price <= base * 1.05:
+            score += 15
+            val_verdict = f"FAIRLY VALUED — price is close to the base case fair value of {fmt_price(base)} (within 5%). Limited upside from here unless assumptions improve."
+            val_colour = "#ca8a04"
+        elif current_price <= bull:
+            score += 5
+            val_verdict = f"SLIGHTLY EXPENSIVE — price is {vs_base:.1f}% above base case. Still within bull case range ({fmt_price(bull)}) but margin of safety is thin."
+            val_colour = "#ca8a04"
+        else:
+            score -= 10
+            val_verdict = f"OVERVALUED — price exceeds the bull case fair value of {fmt_price(bull)}. Risk/reward is unfavourable at current levels."
+            val_colour = "#dc2626"
+    else:
+        val_verdict = "Valuation data incomplete — enter bear/base/bull inputs to generate verdict."
+        val_colour = "#64748b"
+
+    # 2. FUNDAMENTAL QUALITY (30 pts max)
+    fund_points = []
+    fund_score = 0
+
+    # ROE quality
+    if roe:
+        roe_pct = roe * 100
+        if roe_pct >= 15:
+            fund_score += 10
+            fund_points.append(f"ROE of {roe_pct:.1f}% is excellent — well above the 10% threshold that indicates strong capital efficiency.")
+        elif roe_pct >= 10:
+            fund_score += 6
+            fund_points.append(f"ROE of {roe_pct:.1f}% is solid, indicating the business generates reasonable returns on shareholder equity.")
+        elif roe_pct >= 5:
+            fund_score += 2
+            fund_points.append(f"ROE of {roe_pct:.1f}% is modest — the business is profitable but not generating exceptional returns.")
+        else:
+            fund_score -= 5
+            fund_points.append(f"ROE of {roe_pct:.1f}% is weak — the business is struggling to generate adequate returns on equity.")
+
+    # P/E assessment
+    if pe:
+        if asset_type == "Bank":
+            cheap_pe, fair_pe, rich_pe = 8, 12, 16
+        elif asset_type == "REIT":
+            cheap_pe, fair_pe, rich_pe = 12, 18, 25
+        else:
+            cheap_pe, fair_pe, rich_pe = 12, 20, 30
+
+        if pe <= cheap_pe:
+            fund_score += 10
+            fund_points.append(f"P/E of {pe:.1f}x is cheap for a {asset_type} — historically this sector trades at {fair_pe}x, suggesting potential re-rating upside.")
+        elif pe <= fair_pe:
+            fund_score += 6
+            fund_points.append(f"P/E of {pe:.1f}x is fair for a {asset_type}. The market is pricing in steady growth without excessive optimism.")
+        elif pe <= rich_pe:
+            fund_score += 2
+            fund_points.append(f"P/E of {pe:.1f}x is on the higher side for a {asset_type}. Growth expectations are elevated — any miss could hurt the price.")
+        else:
+            fund_score -= 5
+            fund_points.append(f"P/E of {pe:.1f}x looks expensive relative to {asset_type} peers. Requires exceptional growth to justify.")
+
+    # Dividend
+    if dps and current_price > 0:
+        div_yield = dps / current_price * 100
+        if div_yield >= 5:
+            fund_score += 10
+            fund_points.append(f"Dividend yield of {div_yield:.1f}% is attractive — provides strong income while you wait for price appreciation.")
+        elif div_yield >= 3:
+            fund_score += 6
+            fund_points.append(f"Dividend yield of {div_yield:.1f}% is decent — offers meaningful income return on top of capital gains potential.")
+        elif div_yield >= 1:
+            fund_score += 2
+            fund_points.append(f"Dividend yield of {div_yield:.1f}% is modest but confirms the company returns capital to shareholders.")
+        else:
+            fund_points.append("Low or no dividend — total return depends primarily on price appreciation.")
+
+    # Beta / risk
+    if beta:
+        if beta < 0.7:
+            fund_score += 5
+            fund_points.append(f"Beta of {beta:.2f} means this stock is significantly less volatile than the market — good defensive characteristics.")
+        elif beta < 1.0:
+            fund_score += 3
+            fund_points.append(f"Beta of {beta:.2f} indicates below-market volatility — relatively stable compared to the broader market.")
+        elif beta < 1.3:
+            fund_points.append(f"Beta of {beta:.2f} is close to market — expect similar swings to the index in both directions.")
+        else:
+            fund_score -= 3
+            fund_points.append(f"Beta of {beta:.2f} means this stock is more volatile than the market — larger swings up and down.")
+
+    score += min(fund_score, 30)
+    fund_text = " ".join(fund_points) if fund_points else "Insufficient fundamental data to assess quality."
+
+    # 3. MARKET CONTEXT (20 pts max)
+    mkt_score = 0
+    mkt_points = []
+
+    # 52-week range position
+    if range_pos is not None:
+        if range_pos <= 25:
+            mkt_score += 10
+            mkt_points.append(f"Price is near a 52-week low (bottom {range_pos:.0f}% of range) — historically a good entry zone for patient investors.")
+        elif range_pos <= 50:
+            mkt_score += 6
+            mkt_points.append(f"Price is in the lower half of the 52-week range ({range_pos:.0f}%) — neither at extreme low nor high.")
+        elif range_pos <= 75:
+            mkt_score += 2
+            mkt_points.append(f"Price is in the upper half of the 52-week range ({range_pos:.0f}%) — momentum is positive but limited room to the upside.")
+        else:
+            mkt_score -= 5
+            mkt_points.append(f"Price is near a 52-week high ({range_pos:.0f}% of range) — chasing momentum at the top carries more risk.")
+
+    # Buy/sell pressure
+    if buy_pct is not None:
+        if buy_pct >= 60:
+            mkt_score += 10
+            mkt_points.append(f"5-day volume is {buy_pct:.0f}% buy-dominated — institutional accumulation likely underway.")
+        elif buy_pct >= 50:
+            mkt_score += 5
+            mkt_points.append(f"5-day volume is slightly buy-weighted ({buy_pct:.0f}%) — mild positive momentum.")
+        elif buy_pct >= 40:
+            mkt_score += 0
+            mkt_points.append(f"5-day volume is balanced ({buy_pct:.0f}% buy / {100-buy_pct:.0f}% sell) — no clear direction from recent activity.")
+        else:
+            mkt_score -= 5
+            mkt_points.append(f"5-day volume is {100-buy_pct:.0f}% sell-dominated — near-term selling pressure could push price lower.")
+
+    score += min(mkt_score, 20)
+    mkt_text = " ".join(mkt_points) if mkt_points else "Insufficient market data."
+
+    # 4. HISTORICAL OPPORTUNITY (10 pts max)
+    hist_score = 0
+    hist_points = []
+
+    if days_total > 0:
+        buy_pct_hist = days_in_buy / days_total * 100
+        hold_pct_hist = days_in_hold / days_total * 100
+        above_pct_hist = days_above_sell / days_total * 100
+
+        if buy_pct_hist == 0:
+            hist_points.append(f"In the past 2 years, this stock has NEVER traded in the buy zone (below {fmt_price(bear)}) — the current price is the cheapest relative to fair value in recent history.")
+            hist_score += 5 if current_price > bear else 10
+        elif buy_pct_hist <= 10:
+            hist_score += 8
+            hist_points.append(f"Buy zone opportunities are rare — only {buy_pct_hist:.0f}% of trading days in 2 years. Current level is historically cheap.")
+        elif buy_pct_hist <= 30:
+            hist_score += 4
+            hist_points.append(f"Stock has spent {buy_pct_hist:.0f}% of the past 2 years in the buy zone — opportunities exist but aren't exceptionally rare.")
+        else:
+            hist_score += 0
+            hist_points.append(f"Stock spends {buy_pct_hist:.0f}% of time in the buy zone — the current valuation inputs may be too conservative or the stock is structurally cheap.")
+
+        if above_pct_hist <= 5:
+            hist_points.append(f"Stock rarely exceeds the bull case — only {above_pct_hist:.0f}% of days. The bull target of {fmt_price(bull)} is realistic.")
+        elif above_pct_hist >= 30:
+            hist_points.append(f"Stock has spent {above_pct_hist:.0f}% of time above the trim price — consider raising your bull case assumptions.")
+
+    score += min(hist_score, 10)
+    hist_text = " ".join(hist_points) if hist_points else "No historical data available."
+
+    # ── Final verdict ─────────────────────────────────────────────────────────
+    score = max(0, min(score, 100))  # clamp 0-100
+
+    if score >= 75:
+        verdict = "STRONG BUY"
+        verdict_colour = "#16a34a"
+        verdict_icon = "🟢"
+        action = f"Consider building a full position. Target price: {fmt_price(base)} (base case). Add more if price falls to {fmt_price(bear)}."
+    elif score >= 55:
+        verdict = "BUY / ACCUMULATE"
+        verdict_colour = "#22c55e"
+        verdict_icon = "🟢"
+        action = f"Good risk/reward. Start with a partial position, add on weakness toward {fmt_price(bear)}. Target: {fmt_price(base)}."
+    elif score >= 40:
+        verdict = "HOLD / WATCH"
+        verdict_colour = "#f59e0b"
+        verdict_icon = "🟡"
+        action = f"Fair value — hold existing positions. Wait for a pullback to {fmt_price(bear)} before adding. Trim toward {fmt_price(bull)}."
+    elif score >= 25:
+        verdict = "AVOID / WAIT"
+        verdict_colour = "#f97316"
+        verdict_icon = "🟠"
+        action = f"Risk/reward is unfavourable at current price. Wait for a pullback to {fmt_price(bear)} before considering entry."
+    else:
+        verdict = "SELL / TRIM"
+        verdict_colour = "#dc2626"
+        verdict_icon = "🔴"
+        action = f"Price exceeds fair value. Consider trimming. Re-enter only if price falls back to {fmt_price(bear)}."
+
+    # ── Render ────────────────────────────────────────────────────────────────
+    # Score gauge
+    gauge_colour = verdict_colour
+    st.markdown(f"""
+<div style="background:#0f172a;border:1px solid #1e293b;border-radius:12px;padding:1.2rem 1.5rem;margin-bottom:1rem;">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;">
+    <div>
+      <div style="font-size:0.75rem;color:#64748b;margin-bottom:2px;">Overall score</div>
+      <div style="font-size:2rem;font-weight:700;color:{gauge_colour};">{verdict_icon} {verdict}</div>
+    </div>
+    <div style="text-align:right;">
+      <div style="font-size:0.75rem;color:#64748b;margin-bottom:2px;">Confidence score</div>
+      <div style="font-size:2rem;font-weight:700;color:{gauge_colour};">{score}/100</div>
+    </div>
+  </div>
+  <div style="background:#1e293b;border-radius:99px;height:10px;">
+    <div style="background:{gauge_colour};width:{score}%;height:100%;border-radius:99px;"></div>
+  </div>
+  <div style="margin-top:0.75rem;font-size:0.9rem;color:#cbd5e1;font-weight:500;">{action}</div>
+</div>""", unsafe_allow_html=True)
+
+    # 4 analysis cards
+    cards = [
+        ("📊 Valuation verdict", val_colour, val_verdict),
+        ("🏦 Fundamental quality", "#3b82f6", fund_text),
+        ("📈 Market context", "#8b5cf6", mkt_text),
+        ("📅 Historical opportunity", "#06b6d4", hist_text),
+    ]
+
+    for title, colour, body in cards:
+        st.markdown(f"""
+<div style="border-left:3px solid {colour};background:#0f172a;padding:0.8rem 1rem;
+     margin:0.5rem 0;border-radius:0 8px 8px 0;">
+  <div style="font-size:0.75rem;font-weight:600;color:{colour};margin-bottom:4px;">{title}</div>
+  <div style="font-size:0.875rem;color:#cbd5e1;line-height:1.65;">{body}</div>
+</div>""", unsafe_allow_html=True)
+
+    st.caption("⚠️ Rule-based analysis only. Not financial advice. Always verify with primary sources and your own research.")
+
 def fmt_price(v, currency=""):
     if v is None:
         return "—"
@@ -644,6 +903,41 @@ def pb_roe_price(book, roe, coe_bear, coe_base, coe_bull):
     return results
 
 
+
+# ── Asset type lookup (auto-detect from ticker) ──────────────────────────────
+ASSET_TYPE_MAP = {
+    # Banks
+    "O39.SI": "Bank", "D05.SI": "Bank", "U11.SI": "Bank",
+    # REITs — identified by U suffix or known REIT tickers
+    "C38U.SI": "REIT", "A17U.SI": "REIT", "ME8U.SI": "REIT",
+    "M44U.SI": "REIT", "N2IU.SI": "REIT", "BUOU.SI": "REIT",
+    "J91U.SI": "REIT", "OXMU.SI": "REIT", "SK6U.SI": "REIT",
+    "T82U.SI": "REIT", "RW0U.SI": "REIT", "SV3U.SI": "REIT",
+    # US REITs
+    "O": "REIT", "PLD": "REIT", "AMT": "REIT", "SPG": "REIT",
+    "VICI": "REIT", "WPC": "REIT", "NNN": "REIT",
+    # Companies (DDM — dividend payers)
+    "Z74.SI": "Company (DDM)", "Y92.SI": "Company (DDM)",
+    "BN4.SI": "Company (DCF)",
+    # US Companies
+    "AAPL": "Company (DCF)", "MSFT": "Company (DCF)",
+    "GOOGL": "Company (DCF)", "AMZN": "Company (DCF)",
+    "JPM": "Bank", "BAC": "Bank", "WFC": "Bank",
+}
+
+def auto_detect_asset_type(ticker: str) -> str:
+    """Guess asset type from ticker. SGX .U suffix = REIT."""
+    t = ticker.upper().strip()
+    if t in ASSET_TYPE_MAP:
+        return ASSET_TYPE_MAP[t]
+    # SGX REITs almost always end in U before .SI
+    if t.endswith(".SI") and len(t) > 4 and t[-4] == "U":
+        return "REIT"
+    # SGX banks — 3 char + .SI
+    if t.endswith(".SI") and len(t) == 6:
+        return "Bank"
+    return "Company (DCF)"
+
 # ── Sidebar: ticker + asset type ─────────────────────────────────────────────
 with st.sidebar:
     st.markdown("## 📊 Valuation Tool")
@@ -652,7 +946,18 @@ with st.sidebar:
 
     ticker_input = st.text_input("Ticker symbol", value="O39.SI",
                                  help="SGX: e.g. C38U.SI (CapitaLand REIT)\nUS: e.g. O (Realty Income)\nBank: e.g. D05.SI (DBS)")
-    asset_type = st.selectbox("Asset type", ["REIT", "Bank", "Company (DCF)", "Company (DDM)"])
+
+    # Auto-detect asset type
+    _auto_type = auto_detect_asset_type(ticker_input.strip().upper())
+    _type_options = ["REIT", "Bank", "Company (DCF)", "Company (DDM)"]
+    _auto_idx = _type_options.index(_auto_type) if _auto_type in _type_options else 0
+
+    with st.expander(f"Asset type: **{_auto_type}** (auto)", expanded=False):
+        st.caption("Auto-detected. Override if wrong:")
+        asset_type = st.selectbox("Asset type", _type_options, index=_auto_idx, label_visibility="collapsed")
+    # Use auto type if user hasn't overridden
+    if "asset_type_override" not in st.session_state:
+        asset_type = _auto_type
 
     st.divider()
 
@@ -914,6 +1219,25 @@ Formula: **Justified P/B = (ROE − g) / (COE − g)**
 
 **DDM** acts as a cross-check using dividend history. If both methods give similar answers, you have higher conviction.
         """)
+    # ── AI Analysis ──────────────────────────────────────────────────────────
+    _bs2 = fetch_buy_sell_pressure(ticker)
+    _sig2, _ = signal(current_price, pb_results["Bear"], pb_results["Bull"]) if pb_results.get("Bear") and pb_results.get("Bull") else ("—", "")
+    _dib = int((hist["Close"] <= pb_results["Bear"]).sum()) if hist is not None and not hist.empty and pb_results.get("Bear") else 0
+    _dih = int(((hist["Close"] > pb_results["Bear"]) & (hist["Close"] <= pb_results["Base"])).sum()) if hist is not None and not hist.empty and pb_results.get("Bear") and pb_results.get("Base") else 0
+    _dat = int((hist["Close"] > pb_results["Bull"]).sum()) if hist is not None and not hist.empty and pb_results.get("Bull") else 0
+    _dtot = len(hist) if hist is not None and not hist.empty else 502
+    render_ai_analysis(
+        ticker=ticker, asset_type=asset_type, current_price=current_price,
+        bear=pb_results.get("Bear",0), base=pb_results.get("Base",0), bull=pb_results.get("Bull",0),
+        sector=data.get("sector","—") if data else "—",
+        pe=data.get("pe") if data else None,
+        roe=roe/100, book=book, dps=dps, beta=data.get("beta") if data else None,
+        buy_pct=_bs2.get("buy_pct",50) if _bs2 else 50,
+        range_pos=_bs2.get("range_pos",50) if _bs2 else 50,
+        days_in_buy=_dib, days_in_hold=_dih, days_above_sell=_dat, days_total=_dtot,
+        signal_text=_sig2
+    )
+
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
