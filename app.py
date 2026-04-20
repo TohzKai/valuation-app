@@ -258,34 +258,44 @@ def render_action_panel(current_price, bear, base, bull, ticker, currency=""):
     # ── Action prices ────────────────────────────────────────────────────────
     st.markdown('<div class="section-header">🎯 Action Prices</div>', unsafe_allow_html=True)
 
+    # Sanity check — warn if fair values seem totally off vs current price
+    ratio_check = max(bear, bull) / cur if cur > 0 else 1
+    if ratio_check < 0.3 or ratio_check > 5:
+        st.warning(
+            f"⚠️ Fair values ({fmt_price(bear, currency)} – {fmt_price(bull, currency)}) look very different "
+            f"from current price ({fmt_price(cur, currency)}). "
+            f"Double-check your inputs match the correct asset type — e.g. OCBC (O39.SI) should use **Bank**, not REIT."
+        )
+
     a1, a2, a3, a4 = st.columns(4)
-    a1.metric(
-        "BUY below",
-        fmt_price(bear, currency),
-        delta=f"{(bear - cur)/cur*100:+.1f}% from now" if cur else None,
-        delta_color="normal"
-    )
-    a2.metric(
-        "HOLD / target",
-        fmt_price(base, currency),
-        delta=f"{(base - cur)/cur*100:+.1f}% from now" if cur else None,
-    )
-    a3.metric(
-        "TRIM / sell",
-        fmt_price(bull, currency),
-        delta=f"{(bull - cur)/cur*100:+.1f}% from now" if cur else None,
-    )
+
+    # BUY price: how far DOWN from current to reach buy zone
+    buy_gap = (bear - cur) / cur * 100 if cur else 0
+    buy_label = f"{buy_gap:+.1f}% vs current" if bear < cur else f"✅ Already in buy zone!"
+    a1.metric("BUY below", fmt_price(bear, currency), delta=buy_label,
+              delta_color="inverse")   # red when bear > cur (need to wait), green when <=
+
+    # HOLD target: upside from current to base case
+    hold_gap = (base - cur) / cur * 100 if cur else 0
+    a2.metric("HOLD / target", fmt_price(base, currency),
+              delta=f"{hold_gap:+.1f}% upside to here")
+
+    # TRIM: upside from current to bull case
+    trim_gap = (bull - cur) / cur * 100 if cur else 0
+    a3.metric("TRIM / sell", fmt_price(bull, currency),
+              delta=f"{trim_gap:+.1f}% upside to here")
+
     a4.metric("Current price", fmt_price(cur, currency))
 
     # Colour-coded interpretation
     if cur <= bear:
-        colour, msg = "#dcfce7", f"✅ Price is IN the buy zone (below {fmt_price(bear, currency)}). Consider buying."
+        colour, msg = "#dcfce7", f"✅ STRONG BUY — price is below bear case ({fmt_price(bear, currency)}). Maximum margin of safety."
     elif cur <= base:
-        colour, msg = "#fef9c3", f"👀 Price is between buy and target. Reasonable entry with smaller size."
+        colour, msg = "#fef9c3", f"👀 WATCH — price between buy zone and target. Reasonable entry with smaller position."
     elif cur <= bull:
-        colour, msg = "#fef3c7", f"⚠️ Price is above base target. Hold existing positions. No new buys."
+        colour, msg = "#fef3c7", f"⚠️ HOLD — price above target. Hold existing. Wait for pullback to {fmt_price(bear, currency)} before adding."
     else:
-        colour, msg = "#fee2e2", f"🚫 Price exceeds bull case ({fmt_price(bull, currency)}). Consider trimming."
+        colour, msg = "#fee2e2", f"🚫 AVOID / TRIM — price {fmt_price(cur, currency)} exceeds bull case {fmt_price(bull, currency)}. Consider reducing position."
 
     st.markdown(
         f'<div style="background:{colour};border-radius:10px;padding:0.9rem 1.2rem;'
