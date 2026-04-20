@@ -43,60 +43,132 @@ st.markdown("""
 # ── Helpers ───────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=300)
 def fetch_ticker(ticker: str):
+    """
+    Fetch ticker info using Yahoo Finance query2 API directly —
+    works on Streamlit Cloud where yfinance.info is often blocked.
+    """
+    import requests, json
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        "Accept": "application/json",
+    }
+
+    # --- Method 1: Yahoo Finance query2 (works on cloud) ---
+    try:
+        url = f"https://query2.finance.yahoo.com/v8/finance/chart/{ticker}?interval=1d&range=1d"
+        r = requests.get(url, headers=headers, timeout=10)
+        if r.status_code == 200:
+            js = r.json()
+            meta = js.get("chart", {}).get("result", [{}])[0].get("meta", {})
+            price = meta.get("regularMarketPrice") or meta.get("previousClose")
+            currency = meta.get("currency", "")
+            # Get fundamentals from summary endpoint
+            url2 = f"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{ticker}?modules=defaultKeyStatistics,summaryDetail,financialData,price"
+            r2 = requests.get(url2, headers=headers, timeout=10)
+            info = {}
+            if r2.status_code == 200:
+                js2 = r2.json()
+                result = js2.get("quoteSummary", {}).get("result", [{}])[0] or {}
+                ks  = result.get("defaultKeyStatistics", {})
+                sd  = result.get("summaryDetail", {})
+                fd  = result.get("financialData", {})
+                pr  = result.get("price", {})
+                def v(d, k): return d.get(k, {}).get("raw") if isinstance(d.get(k), dict) else d.get(k)
+                info = {
+                    "price":    price or v(pr, "regularMarketPrice"),
+                    "name":     v(pr, "longName") or v(pr, "shortName") or ticker,
+                    "sector":   "—",
+                    "eps":      v(ks, "trailingEps"),
+                    "dps":      v(sd, "dividendRate") or v(sd, "trailingAnnualDividendRate"),
+                    "book":     v(ks, "bookValue"),
+                    "roe":      v(fd, "returnOnEquity"),
+                    "beta":     v(ks, "beta"),
+                    "pe":       v(sd, "trailingPE"),
+                    "pb":       v(ks, "priceToBook"),
+                    "mktcap":   v(pr, "marketCap"),
+                    "currency": currency or v(pr, "currency") or "",
+                }
+            else:
+                info = {"price": price, "name": ticker, "sector": "—",
+                        "eps": None, "dps": None, "book": None, "roe": None,
+                        "beta": None, "pe": None, "pb": None, "mktcap": None,
+                        "currency": currency}
+            if info.get("price"):
+                return info
+    except Exception:
+        pass
+
+    # --- Method 2: yfinance fallback (works locally) ---
     try:
         t = yf.Ticker(ticker)
         info = t.info
-
-        # yfinance sometimes returns a minimal dict — guard against it
-        if not info or len(info) < 5:
-            return None
-
-        # Try multiple price keys — different yfinance versions use different keys
-        price = (
-            info.get("currentPrice")
-            or info.get("regularMarketPrice")
-            or info.get("ask")
-            or info.get("bid")
-            or info.get("previousClose")
-        )
-
-        # Final fallback: pull last close from history
-        if not price:
-            try:
+        if info and len(info) > 5:
+            price = (info.get("currentPrice") or info.get("regularMarketPrice")
+                     or info.get("previousClose"))
+            if not price:
                 hist = t.history(period="1d")
                 if not hist.empty:
                     price = float(hist["Close"].iloc[-1])
-            except Exception:
-                pass
+            return {
+                "price":    price,
+                "name":     info.get("longName") or info.get("shortName") or ticker,
+                "sector":   info.get("sector", "—"),
+                "eps":      info.get("trailingEps"),
+                "dps":      info.get("dividendRate") or info.get("trailingAnnualDividendRate"),
+                "book":     info.get("bookValue"),
+                "roe":      info.get("returnOnEquity"),
+                "beta":     info.get("beta"),
+                "pe":       info.get("trailingPE"),
+                "pb":       info.get("priceToBook"),
+                "mktcap":   info.get("marketCap"),
+                "currency": info.get("currency", ""),
+            }
+    except Exception:
+        pass
 
-        return {
-            "price": price,
-            "name": info.get("longName") or info.get("shortName") or ticker,
-            "sector": info.get("sector", "—"),
-            "eps": info.get("trailingEps"),
-            "dps": info.get("dividendRate") or info.get("trailingAnnualDividendRate"),
-            "book": info.get("bookValue"),
-            "roe": info.get("returnOnEquity"),
-            "beta": info.get("beta"),
-            "pe": info.get("trailingPE"),
-            "pb": info.get("priceToBook"),
-            "mktcap": info.get("marketCap"),
-            "currency": info.get("currency", ""),
-        }
-    except Exception as e:
-        return None
+    return None
+
 
 @st.cache_data(ttl=3600)
 def fetch_price_history(ticker: str, period: str = "2y"):
+    """
+    Fetch OHLC history — tries direct Yahoo API first, yfinance second.
+    """
+    import requests
+
+    headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
+
+    # Method 1: direct Yahoo chart API
+    try:
+        url = f"https://query2.finance.yahoo.com/v8/finance/chart/{ticker}?interval=1d&range={period}"
+        r = requests.get(url, headers=headers, timeout=15)
+        if r.status_code == 200:
+            js = r.json()
+            result = js.get("chart", {}).get("result", [None])[0]
+            if result:
+                timestamps = result.get("timestamp", [])
+                closes = result.get("indicators", {}).get("quote", [{}])[0].get("close", [])
+                if timestamps and closes:
+                    dates = pd.to_datetime(timestamps, unit="s")
+                    df = pd.DataFrame({"Close": closes}, index=dates)
+                    df = df.dropna()
+                    df.index = df.index.tz_localize(None)
+                    return df
+    except Exception:
+        pass
+
+    # Method 2: yfinance fallback
     try:
         t = yf.Ticker(ticker)
         hist = t.history(period=period)
-        if hist.empty:
-            return None
-        hist.index = hist.index.tz_localize(None)
-        return hist[["Close"]].copy()
+        if not hist.empty:
+            hist.index = hist.index.tz_localize(None)
+            return hist[["Close"]].copy()
     except Exception:
-        return None
+        pass
+
+    return None
 
 
 def position_sizing(current_price, bear, base, bull, max_alloc=100.0):
