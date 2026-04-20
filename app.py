@@ -97,7 +97,7 @@ def _get_api_key() -> str:
         return st.session_state.get("finnhub_key", "")
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, show_spinner=False)
 def fetch_ticker(ticker: str, api_key: str = ""):
     """
     Fetch price + fundamentals via Finnhub (works on Streamlit Cloud).
@@ -105,39 +105,51 @@ def fetch_ticker(ticker: str, api_key: str = ""):
     """
     import requests
 
-    key = api_key or _get_api_key()
+    key = api_key.strip() if api_key else ""
 
     # ── Method 1: Finnhub (cloud-safe) ───────────────────────────────────────
     if key:
+        # Finnhub uses exchange suffix format: O39.SI -> O39:SP
         fh_sym = _finnhub_symbol(ticker)
-        base = "https://finnhub.io/api/v1"
+        base_url = "https://finnhub.io/api/v1"
         h = {"X-Finnhub-Token": key}
         try:
-            # Quote (live price)
-            q = requests.get(f"{base}/quote?symbol={fh_sym}", headers=h, timeout=8).json()
-            price = q.get("c") or q.get("pc")  # current or previous close
+            # Quote — live price
+            q = requests.get(f"{base_url}/quote?symbol={fh_sym}", headers=h, timeout=10)
+            q.raise_for_status()
+            qj = q.json()
+            # c = current price, pc = previous close, t = timestamp
+            price = qj.get("c")
+            if not price or price == 0:
+                price = qj.get("pc")  # fallback to prev close
 
-            # Company profile (name, sector, currency)
-            p = requests.get(f"{base}/stock/profile2?symbol={fh_sym}", headers=h, timeout=8).json()
-            name     = p.get("name", ticker)
-            sector   = p.get("finnhubIndustry") or p.get("gsector") or "—"
-            currency = p.get("currency", "")
+            # Company profile — name, sector, currency
+            p = requests.get(f"{base_url}/stock/profile2?symbol={fh_sym}", headers=h, timeout=10)
+            p.raise_for_status()
+            pj = p.json()
+            name     = pj.get("name") or ticker
+            sector   = pj.get("finnhubIndustry") or "—"
+            currency = pj.get("currency") or "SGD"
 
-            # Basic financials (PE, book, beta, etc.)
-            f = requests.get(f"{base}/stock/metric?symbol={fh_sym}&metric=all", headers=h, timeout=8).json()
-            m = f.get("metric", {})
+            # Basic financials — PE, book, beta, ROE, etc.
+            fm = requests.get(f"{base_url}/stock/metric?symbol={fh_sym}&metric=all", headers=h, timeout=10)
+            fm.raise_for_status()
+            fmj = fm.json()
+            m = fmj.get("metric", {})
 
-            pe   = m.get("peBasicExclExtraTTM") or m.get("peTTM")
+            pe   = m.get("peBasicExclExtraTTM") or m.get("peTTM") or m.get("peAnnual")
             book = m.get("bookValuePerShareQuarterly") or m.get("bookValuePerShareAnnual")
-            roe  = m.get("roeTTM")
+            roe  = m.get("roeTTM") or m.get("roeAnnual")
             beta = m.get("beta")
-            dps  = m.get("dividendPerShareAnnual")
+            dps  = m.get("dividendPerShareAnnual") or m.get("dividendPerShareTTM")
             pb   = m.get("pbQuarterly") or m.get("pbAnnual")
-            eps  = m.get("epsTTM")
+            eps  = m.get("epsTTM") or m.get("epsAnnual")
 
-            if roe: roe = roe / 100  # Finnhub gives ROE as %, convert to decimal
+            # Finnhub returns ROE as percentage (e.g. 13.5), convert to decimal
+            if roe and abs(roe) > 1:
+                roe = roe / 100
 
-            return {
+            result = {
                 "price":    price,
                 "name":     name,
                 "sector":   sector,
@@ -148,11 +160,17 @@ def fetch_ticker(ticker: str, api_key: str = ""):
                 "beta":     beta,
                 "pe":       pe,
                 "pb":       pb,
-                "mktcap":   p.get("marketCapitalization"),
+                "mktcap":   pj.get("marketCapitalization"),
                 "currency": currency,
             }
-        except Exception:
-            pass
+            # Return if we got at least a price
+            if result.get("price"):
+                return result
+            # Even if price is 0 (market closed), return with sgx_enrich filling price
+            if pj.get("name"):  # profile loaded = valid ticker
+                return result
+        except Exception as e:
+            pass  # fall through to yfinance
 
     # ── Method 2: yfinance (local fallback, often blocked on cloud) ───────────
     try:
@@ -185,7 +203,7 @@ def fetch_ticker(ticker: str, api_key: str = ""):
     return None
 
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=3600, show_spinner=False)
 def fetch_price_history(ticker: str, period: str = "2y", api_key: str = ""):
     """
     Fetch daily close history. Finnhub first, yfinance fallback.
@@ -193,7 +211,7 @@ def fetch_price_history(ticker: str, period: str = "2y", api_key: str = ""):
     import requests
     from datetime import datetime, timedelta
 
-    key = api_key or _get_api_key()
+    key = api_key.strip() if api_key else ""
 
     # ── Method 1: Finnhub candles ─────────────────────────────────────────────
     if key:
@@ -204,13 +222,15 @@ def fetch_price_history(ticker: str, period: str = "2y", api_key: str = ""):
         try:
             url = f"https://finnhub.io/api/v1/stock/candle?symbol={fh_sym}&resolution=D&from={t_from}&to={t_to}"
             r = requests.get(url, headers={"X-Finnhub-Token": key}, timeout=15)
+            r.raise_for_status()
             js = r.json()
-            if js.get("s") == "ok":
+            if js.get("s") == "ok" and js.get("t"):
                 dates  = pd.to_datetime(js["t"], unit="s")
                 closes = js["c"]
                 df = pd.DataFrame({"Close": closes}, index=dates)
                 df.index = df.index.tz_localize(None)
                 return df.dropna()
+            # s == "no_data" means invalid symbol for this exchange
         except Exception:
             pass
 
@@ -527,7 +547,11 @@ with st.sidebar:
     if api_key_input:
         st.session_state["finnhub_key"] = api_key_input
 
-    fetch_btn = st.button("🔄 Fetch live price", use_container_width=True)
+    col_a, col_b = st.columns(2)
+    fetch_btn = col_a.button("🔄 Fetch", use_container_width=True)
+    if col_b.button("🗑️ Clear cache", use_container_width=True):
+        st.cache_data.clear()
+        st.success("Cache cleared!")
 
     st.markdown("---")
     st.caption("Data via Finnhub · For educational use only · Not financial advice")
@@ -555,7 +579,11 @@ if data:
     c3.metric("Sector", data["sector"] if data.get("sector") and data["sector"] != "—" else "—")
     c4.metric("P/E ratio", f"{data['pe']:.1f}x" if data.get("pe") else "—")
     if not live_price:
-        st.info("💡 **Live price unavailable** — enter your Finnhub API key in the sidebar to enable live prices and the price history chart. Get a free key at [finnhub.io](https://finnhub.io) (takes 1 minute, no credit card).")
+        _k = st.session_state.get("finnhub_key","")
+        if _k:
+            st.warning(f"⚠️ Finnhub key found but price returned 0 or empty. This usually means: (1) SGX market is currently closed — price will show during trading hours 9am–5pm SGT, OR (2) the ticker `{ticker}` maps to `{_finnhub_symbol(ticker)}` on Finnhub which may not be supported. Try clicking 🗑️ Clear cache then 🔄 Fetch.")
+        else:
+            st.info("💡 **Live price unavailable** — enter your Finnhub API key in the sidebar to enable live prices and the price history chart. Get a free key at [finnhub.io](https://finnhub.io) (takes 1 minute, no credit card).")
 else:
     st.info("💡 **Enter your Finnhub API key** in the sidebar for live prices. Get a free key at [finnhub.io](https://finnhub.io). You can still use the valuation models manually without it.")
 
