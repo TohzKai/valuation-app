@@ -119,9 +119,8 @@ def fetch_ticker(ticker: str, api_key: str = ""):
             q.raise_for_status()
             qj = q.json()
             # c = current price, pc = previous close, t = timestamp
-            price = qj.get("c")
-            if not price or price == 0:
-                price = qj.get("pc")  # fallback to prev close
+            # c=current price (0 when market closed), pc=previous close
+            price = qj.get("c") or qj.get("pc")  # always use prev close if current=0
 
             # Company profile — name, sector, currency
             p = requests.get(f"{base_url}/stock/profile2?symbol={fh_sym}", headers=h, timeout=10)
@@ -234,7 +233,29 @@ def fetch_price_history(ticker: str, period: str = "2y", api_key: str = ""):
         except Exception:
             pass
 
-    # ── Method 2: yfinance fallback ───────────────────────────────────────────
+    # ── Method 2: Yahoo Finance chart API (works for SGX history) ──────────────
+    import requests as _req
+    try:
+        yf_url = f"https://query2.finance.yahoo.com/v8/finance/chart/{ticker}?interval=1d&range={period}"
+        _h = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
+        _r = _req.get(yf_url, headers=_h, timeout=15)
+        if _r.status_code == 200:
+            _js = _r.json()
+            _res = _js.get("chart", {}).get("result", [None])[0]
+            if _res:
+                _ts = _res.get("timestamp", [])
+                _cl = _res.get("indicators", {}).get("quote", [{}])[0].get("close", [])
+                if _ts and _cl:
+                    _dates = pd.to_datetime(_ts, unit="s")
+                    _df = pd.DataFrame({"Close": _cl}, index=_dates)
+                    _df = _df.dropna()
+                    _df.index = _df.index.tz_localize(None)
+                    if not _df.empty:
+                        return _df
+    except Exception:
+        pass
+
+    # ── Method 3: yfinance library fallback ──────────────────────────────────
     try:
         t = yf.Ticker(ticker)
         hist = t.history(period=period)
@@ -267,6 +288,50 @@ def position_sizing(current_price, bear, base, bull, max_alloc=100.0):
     size_pct = round(ratio * max_alloc, 1)
     return edge * 100, risk * 100, size_pct
 
+
+
+def fetch_buy_sell_pressure(ticker: str) -> dict:
+    """Fetch basic buy/sell pressure from Yahoo Finance quote data."""
+    import requests
+    try:
+        url = f"https://query2.finance.yahoo.com/v8/finance/chart/{ticker}?interval=1d&range=5d"
+        h = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
+        r = requests.get(url, headers=h, timeout=8)
+        if r.status_code == 200:
+            js = r.json()
+            meta = js.get("chart", {}).get("result", [{}])[0].get("meta", {})
+            quote = js.get("chart", {}).get("result", [{}])[0].get("indicators", {}).get("quote", [{}])[0]
+            closes = [c for c in (quote.get("close") or []) if c]
+            volumes = [v for v in (quote.get("volume") or []) if v]
+            opens = [o for o in (quote.get("open") or []) if o]
+            if len(closes) >= 2:
+                # Simple up/down days for buy/sell pressure
+                up_vol = sum(v for c, o, v in zip(closes, opens, volumes) if c > o)
+                down_vol = sum(v for c, o, v in zip(closes, opens, volumes) if c <= o)
+                total_vol = up_vol + down_vol
+                buy_pct = up_vol / total_vol * 100 if total_vol > 0 else 50
+                # 52-week range position
+                low52 = meta.get("fiftyTwoWeekLow", 0)
+                high52 = meta.get("fiftyTwoWeekHigh", 0)
+                current = meta.get("regularMarketPrice") or closes[-1]
+                if high52 > low52 > 0:
+                    range_pos = (current - low52) / (high52 - low52) * 100
+                else:
+                    range_pos = 50
+                return {
+                    "buy_pct": round(buy_pct, 1),
+                    "sell_pct": round(100 - buy_pct, 1),
+                    "up_vol": up_vol,
+                    "down_vol": down_vol,
+                    "range_pos": round(range_pos, 1),
+                    "low52": low52,
+                    "high52": high52,
+                    "current": current,
+                    "avg_vol": meta.get("regularMarketVolume", 0),
+                }
+    except Exception:
+        pass
+    return {}
 
 def render_action_panel(current_price, bear, base, bull, ticker, currency=""):
     """Renders the Buy/Hold/Sell price panel + position sizing + price history chart."""
@@ -324,6 +389,37 @@ def render_action_panel(current_price, bear, base, bull, ticker, currency=""):
         f'margin:0.5rem 0 1rem;font-weight:600;font-size:0.95rem;color:#111827;">{msg}</div>',
         unsafe_allow_html=True
     )
+
+    # ── Market sentiment / buy-sell pressure ────────────────────────────────
+    st.markdown('<div class="section-header">📊 Market Sentiment (5-day)</div>', unsafe_allow_html=True)
+    bs = fetch_buy_sell_pressure(ticker)
+    if bs:
+        s1, s2, s3 = st.columns(3)
+        buy_c = "#16a34a" if bs["buy_pct"] >= 50 else "#dc2626"
+        sell_c = "#dc2626" if bs["sell_pct"] >= 50 else "#16a34a"
+        s1.metric("Buying volume", f"{bs['buy_pct']}%",
+                  delta="Bullish" if bs["buy_pct"] >= 55 else "Neutral" if bs["buy_pct"] >= 45 else "Bearish")
+        s2.metric("Selling volume", f"{bs['sell_pct']}%")
+        s3.metric("52-week position", f"{bs['range_pos']}%",
+                  delta=f"Low {bs['low52']:.2f} → High {bs['high52']:.2f}")
+        # Visual buy/sell bar
+        bp = int(bs["buy_pct"])
+        sp = 100 - bp
+        st.markdown(
+            f'''<div style="margin:0.5rem 0 0.25rem;font-size:0.75rem;color:#64748b;">Volume-weighted buy vs sell pressure (5 days)</div>
+<div style="display:flex;border-radius:6px;overflow:hidden;height:20px;">
+  <div style="width:{bp}%;background:#16a34a;display:flex;align-items:center;justify-content:center;font-size:11px;color:white;font-weight:600;">
+    {bp}% buy
+  </div>
+  <div style="width:{sp}%;background:#dc2626;display:flex;align-items:center;justify-content:center;font-size:11px;color:white;font-weight:600;">
+    {sp}% sell
+  </div>
+</div>''',
+            unsafe_allow_html=True
+        )
+        st.caption("⚠️ Sentiment is 5-day volume approximation only — not a trading signal. Always base decisions on valuation fundamentals above.")
+    else:
+        st.info("Market sentiment unavailable for this ticker.")
 
     # ── Position sizing ───────────────────────────────────────────────────────
     st.markdown('<div class="section-header">📐 Position Sizing</div>', unsafe_allow_html=True)
@@ -541,11 +637,27 @@ with st.sidebar:
     st.divider()
 
     st.markdown("**🔑 Finnhub API Key**")
-    st.caption("Free key at [finnhub.io](https://finnhub.io) — required for live data on cloud")
-    api_key_input = st.text_input("API Key", value=st.session_state.get("finnhub_key",""),
-                                   type="password", placeholder="Paste your free Finnhub key")
+    # Try secrets first (permanent), then session state
+    _saved_key = ""
+    try:
+        _saved_key = st.secrets.get("FINNHUB_API_KEY", "")
+    except Exception:
+        pass
+    _saved_key = _saved_key or st.session_state.get("finnhub_key", "")
+
+    api_key_input = st.text_input(
+        "API Key",
+        value=_saved_key,
+        type="password",
+        placeholder="Paste your free Finnhub key",
+        help="Get free key at finnhub.io. To save permanently: Streamlit Cloud → Settings → Secrets → add FINNHUB_API_KEY = \"your_key\""
+    )
     if api_key_input:
         st.session_state["finnhub_key"] = api_key_input
+    if _saved_key:
+        st.caption("✅ Key loaded from secrets")
+    elif api_key_input:
+        st.caption("⚡ Key active this session only. Save permanently in Streamlit Secrets.")
 
     col_a, col_b = st.columns(2)
     fetch_btn = col_a.button("🔄 Fetch", use_container_width=True)
@@ -569,14 +681,14 @@ st.caption(f"Analysing: **{ticker}** — {asset_type}")
 
 if data:
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Company", data["name"][:28] if data["name"] else "—")
+    c1.metric("Company", data.get("name")[:28] if data.get("name") else "—")
     live_price = data.get("price")
     if live_price:
-        price_display = fmt_price(live_price, data["currency"])
+        price_display = fmt_price(live_price, data.get("currency"))
     else:
         price_display = "—"
     c2.metric("Live price", price_display)
-    c3.metric("Sector", data["sector"] if data.get("sector") and data["sector"] != "—" else "—")
+    c3.metric("Sector", data.get("sector") if data.get("sector") and data.get("sector") != "—" else "—")
     c4.metric("P/E ratio", f"{data['pe']:.1f}x" if data.get("pe") else "—")
     if not live_price:
         _k = st.session_state.get("finnhub_key","")
@@ -656,7 +768,7 @@ if asset_type == "REIT":
     }).set_index("Scenario")
     st.bar_chart(chart_data)
 
-    render_action_panel(current_price, ffo_results["Bear"], ffo_results["Base"], ffo_results["Bull"], ticker, data["currency"] if data else "")
+    render_action_panel(current_price, ffo_results["Bear"], ffo_results["Base"], ffo_results["Bull"], ticker, data.get("currency","") if data else "")
 
     with st.expander("📖 How to read REIT valuation"):
         st.markdown("""
@@ -683,11 +795,11 @@ elif asset_type == "Bank":
 
     with col_l:
         st.markdown("**Fundamentals**")
-        book = st.number_input("Book value per share", value=float(data["book"]) if data and data.get("book") else 10.0,
+        book = st.number_input("Book value per share", value=float(data.get("book")) if data and data.get("book") else 10.0,
                                step=0.1, format="%.2f", help="Net assets / shares outstanding. In annual report.")
-        roe = st.number_input("Return on Equity — ROE (%)", value=float(data["roe"] * 100) if data and data.get("roe") else 12.0,
+        roe = st.number_input("Return on Equity — ROE (%)", value=float(data.get("roe") * 100) if data and data.get("roe") else 12.0,
                               step=0.5, format="%.1f") / 100
-        dps = st.number_input("Dividend per share (annual)", value=float(data["dps"]) if data and data.get("dps") else 0.50,
+        dps = st.number_input("Dividend per share (annual)", value=float(data.get("dps")) if data and data.get("dps") else 0.50,
                               step=0.05, format="%.2f")
         current_price = st.number_input("Current price (override)", value=float(data.get("price") or 0) if data and data.get("price") else 10.0,
                                         step=0.05, format="%.2f")
@@ -754,7 +866,7 @@ elif asset_type == "Bank":
     st.markdown('<div class="section-header">Fair Value Range</div>', unsafe_allow_html=True)
     st.bar_chart(chart_data)
 
-    render_action_panel(current_price, pb_results["Bear"], pb_results["Base"], pb_results["Bull"], ticker, data["currency"] if data else "")
+    render_action_panel(current_price, pb_results["Bear"], pb_results["Base"], pb_results["Bull"], ticker, data.get("currency","") if data else "")
 
     with st.expander("📖 How to read Bank valuation"):
         st.markdown("""
@@ -845,7 +957,7 @@ elif asset_type == "Company (DCF)":
     st.markdown('<div class="section-header">Fair Value Range</div>', unsafe_allow_html=True)
     st.bar_chart(chart_data)
 
-    render_action_panel(current_price, dcf_results["Bear"], dcf_results["Base"], dcf_results["Bull"], ticker, data["currency"] if data else "")
+    render_action_panel(current_price, dcf_results["Bear"], dcf_results["Base"], dcf_results["Bull"], ticker, data.get("currency","") if data else "")
 
     with st.expander("📖 How to read DCF valuation"):
         st.markdown("""
@@ -874,7 +986,7 @@ elif asset_type == "Company (DDM)":
 
     with col_l:
         st.markdown("**Fundamentals**")
-        dps_val = st.number_input("Dividend per share — current (annual)", value=float(data["dps"]) if data and data.get("dps") else 1.20,
+        dps_val = st.number_input("Dividend per share — current (annual)", value=float(data.get("dps")) if data and data.get("dps") else 1.20,
                                   step=0.05, format="%.2f")
         current_price = st.number_input("Current price (override)", value=float(data.get("price") or 0) if data and data.get("price") else 25.0,
                                         step=0.25, format="%.2f")
@@ -932,7 +1044,7 @@ elif asset_type == "Company (DDM)":
     st.bar_chart(chart_data)
 
     if bv and bav and blv:
-        render_action_panel(current_price, bv, bav, blv, ticker, data["currency"] if data else "")
+        render_action_panel(current_price, bv, bav, blv, ticker, data.get("currency","") if data else "")
 
     with st.expander("📖 How to read DDM valuation"):
         st.markdown("""
