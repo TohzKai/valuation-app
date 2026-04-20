@@ -603,7 +603,7 @@ if asset_type == "REIT":
                               help="Funds From Operations per unit. Found in REIT annual reports.")
         dpu = st.number_input("DPU / Distribution per unit (annual)", value=0.10, step=0.01, format="%.3f",
                               help="Total annual distribution per unit paid to unitholders.")
-        current_price = st.number_input("Current price (override)", value=float(data["price"]) if data and data["price"] else 1.20,
+        current_price = st.number_input("Current price (override)", value=float(data.get("price") or 0) if data and data.get("price") else 1.20,
                                         step=0.01, format="%.3f")
 
     with col_r:
@@ -683,13 +683,13 @@ elif asset_type == "Bank":
 
     with col_l:
         st.markdown("**Fundamentals**")
-        book = st.number_input("Book value per share", value=float(data["book"]) if data and data["book"] else 10.0,
+        book = st.number_input("Book value per share", value=float(data["book"]) if data and data.get("book") else 10.0,
                                step=0.1, format="%.2f", help="Net assets / shares outstanding. In annual report.")
-        roe = st.number_input("Return on Equity — ROE (%)", value=float(data["roe"] * 100) if data and data["roe"] else 12.0,
+        roe = st.number_input("Return on Equity — ROE (%)", value=float(data["roe"] * 100) if data and data.get("roe") else 12.0,
                               step=0.5, format="%.1f") / 100
-        dps = st.number_input("Dividend per share (annual)", value=float(data["dps"]) if data and data["dps"] else 0.50,
+        dps = st.number_input("Dividend per share (annual)", value=float(data["dps"]) if data and data.get("dps") else 0.50,
                               step=0.05, format="%.2f")
-        current_price = st.number_input("Current price (override)", value=float(data["price"]) if data and data["price"] else 10.0,
+        current_price = st.number_input("Current price (override)", value=float(data.get("price") or 0) if data and data.get("price") else 10.0,
                                         step=0.05, format="%.2f")
 
     with col_r:
@@ -782,7 +782,7 @@ elif asset_type == "Company (DCF)":
         st.markdown("**Fundamentals**")
         fcf = st.number_input("Free Cash Flow per share (annual, $)", value=2.50, step=0.10, format="%.2f",
                               help="FCF = Operating Cash Flow − Capex. Divide by shares outstanding.")
-        current_price = st.number_input("Current price (override)", value=float(data["price"]) if data and data["price"] else 50.0,
+        current_price = st.number_input("Current price (override)", value=float(data.get("price") or 0) if data and data.get("price") else 50.0,
                                         step=0.50, format="%.2f")
         years = st.slider("Projection period (years)", 5, 15, 10)
         terminal_g = st.slider("Terminal growth rate (%)", 0.5, 4.0, 2.5, 0.1,
@@ -874,9 +874,9 @@ elif asset_type == "Company (DDM)":
 
     with col_l:
         st.markdown("**Fundamentals**")
-        dps_val = st.number_input("Dividend per share — current (annual)", value=float(data["dps"]) if data and data["dps"] else 1.20,
+        dps_val = st.number_input("Dividend per share — current (annual)", value=float(data["dps"]) if data and data.get("dps") else 1.20,
                                   step=0.05, format="%.2f")
-        current_price = st.number_input("Current price (override)", value=float(data["price"]) if data and data["price"] else 25.0,
+        current_price = st.number_input("Current price (override)", value=float(data.get("price") or 0) if data and data.get("price") else 25.0,
                                         step=0.25, format="%.2f")
         payout = st.slider("Payout ratio (%)", 20, 100, 60,
                            help="% of earnings paid as dividends. Helps assess sustainability.")
