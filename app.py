@@ -64,7 +64,7 @@ def fetch_ticker(ticker: str):
             price = meta.get("regularMarketPrice") or meta.get("previousClose")
             currency = meta.get("currency", "")
             # Get fundamentals + sector + P/E from summary endpoint
-            modules = "defaultKeyStatistics,summaryDetail,financialData,price,assetProfile"
+            modules = "defaultKeyStatistics,summaryDetail,financialData,price,assetProfile,quoteType"
             url2 = f"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{ticker}?modules={modules}"
             r2 = requests.get(url2, headers=headers, timeout=10)
             info = {}
@@ -77,21 +77,32 @@ def fetch_ticker(ticker: str):
                 pr  = result.get("price", {})
                 ap  = result.get("assetProfile", {})
                 def v(d, k): return d.get(k, {}).get("raw") if isinstance(d.get(k), dict) else d.get(k)
-                # P/E: try multiple sources — trailingPE lives in different modules
-                pe_val = (v(sd, "trailingPE")
-                          or v(ks, "trailingPE")
-                          or v(pr, "trailingPE"))
-                # Sector: lives in assetProfile
-                sector_val = ap.get("sector") or ap.get("industry") or "—"
+                # P/E: trailingPE is most reliably in the price module for SGX
+                pe_val = (v(pr, "trailingPE")
+                          or v(sd, "trailingPE")
+                          or v(ks, "trailingPE"))
+                # Sector: Yahoo often missing for SGX — use quoteType as fallback
+                qt = result.get("quoteType", {})
+                sector_val = (ap.get("sector")
+                              or ap.get("industry")
+                              or qt.get("quoteType")
+                              or "—")
+                # Map quoteType codes to readable labels
+                sector_map = {
+                    "EQUITY": "Equity", "ETF": "ETF", "MUTUALFUND": "Fund",
+                    "FUTURE": "Futures", "OPTION": "Options", "CURRENCY": "FX",
+                }
+                if sector_val in sector_map:
+                    sector_val = sector_map[sector_val]
                 info = {
                     "price":    price or v(pr, "regularMarketPrice"),
                     "name":     v(pr, "longName") or v(pr, "shortName") or ticker,
                     "sector":   sector_val,
-                    "eps":      v(ks, "trailingEps"),
+                    "eps":      v(ks, "trailingEps") or v(fd, "revenuePerShare"),
                     "dps":      v(sd, "dividendRate") or v(sd, "trailingAnnualDividendRate"),
                     "book":     v(ks, "bookValue"),
                     "roe":      v(fd, "returnOnEquity"),
-                    "beta":     v(ks, "beta"),
+                    "beta":     v(ks, "beta") or v(sd, "beta"),
                     "pe":       pe_val,
                     "pb":       v(ks, "priceToBook"),
                     "mktcap":   v(pr, "marketCap"),
