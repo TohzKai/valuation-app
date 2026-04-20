@@ -63,8 +63,9 @@ def fetch_ticker(ticker: str):
             meta = js.get("chart", {}).get("result", [{}])[0].get("meta", {})
             price = meta.get("regularMarketPrice") or meta.get("previousClose")
             currency = meta.get("currency", "")
-            # Get fundamentals from summary endpoint
-            url2 = f"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{ticker}?modules=defaultKeyStatistics,summaryDetail,financialData,price"
+            # Get fundamentals + sector + P/E from summary endpoint
+            modules = "defaultKeyStatistics,summaryDetail,financialData,price,assetProfile"
+            url2 = f"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{ticker}?modules={modules}"
             r2 = requests.get(url2, headers=headers, timeout=10)
             info = {}
             if r2.status_code == 200:
@@ -74,17 +75,24 @@ def fetch_ticker(ticker: str):
                 sd  = result.get("summaryDetail", {})
                 fd  = result.get("financialData", {})
                 pr  = result.get("price", {})
+                ap  = result.get("assetProfile", {})
                 def v(d, k): return d.get(k, {}).get("raw") if isinstance(d.get(k), dict) else d.get(k)
+                # P/E: try multiple sources — trailingPE lives in different modules
+                pe_val = (v(sd, "trailingPE")
+                          or v(ks, "trailingPE")
+                          or v(pr, "trailingPE"))
+                # Sector: lives in assetProfile
+                sector_val = ap.get("sector") or ap.get("industry") or "—"
                 info = {
                     "price":    price or v(pr, "regularMarketPrice"),
                     "name":     v(pr, "longName") or v(pr, "shortName") or ticker,
-                    "sector":   "—",
+                    "sector":   sector_val,
                     "eps":      v(ks, "trailingEps"),
                     "dps":      v(sd, "dividendRate") or v(sd, "trailingAnnualDividendRate"),
                     "book":     v(ks, "bookValue"),
                     "roe":      v(fd, "returnOnEquity"),
                     "beta":     v(ks, "beta"),
-                    "pe":       v(sd, "trailingPE"),
+                    "pe":       pe_val,
                     "pb":       v(ks, "priceToBook"),
                     "mktcap":   v(pr, "marketCap"),
                     "currency": currency or v(pr, "currency") or "",
