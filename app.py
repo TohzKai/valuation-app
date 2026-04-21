@@ -32,12 +32,13 @@ st.markdown("""
     .avoid { background: #fee2e2; border-color: #fca5a5; }
     .section-header {
         font-size: 1rem; font-weight: 700;
-        color: var(--text-color, #1e293b);
-        border-bottom: 2px solid #e2e8f0;
+        color: #2563eb !important;
+        border-bottom: 2px solid #2563eb;
         padding: 0.5rem 0 0.4rem 0;
         margin-bottom: 1rem; margin-top: 1.5rem;
         display: block; width: 100%;
         background: transparent;
+        letter-spacing: 0.01em;
     }
     div[data-testid="stMetric"] label { font-size: 0.75rem !important; }
     /* Force dark text on all coloured signal banners — readable in dark mode */
@@ -933,7 +934,7 @@ def render_ai_analysis(ticker, asset_type, current_price, bear, base, bull,
     100% free rule-based investment analysis engine.
     No API calls. No cost. Runs entirely in Python.
     """
-    st.markdown('<div class="section-header">📋 Investment Analysis</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header">🤖 Investment Analysis</div>', unsafe_allow_html=True)
 
     # ── Scoring engine ────────────────────────────────────────────────────────
     # Each indicator contributes points: positive = bullish, negative = bearish
@@ -1473,7 +1474,7 @@ st.divider()
 # REIT VALUATION
 # ═══════════════════════════════════════════════════════════════════════════════
 if asset_type == "REIT":
-    st.markdown('<div class="section-header">REIT Inputs</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header">🏢 REIT Inputs</div>', unsafe_allow_html=True)
 
     col_l, col_r = st.columns([1, 1], gap="large")
 
@@ -1502,7 +1503,7 @@ if asset_type == "REIT":
     ffo_results, yield_results = ffo_price(ffo, pb_bear, pb_base, pb_bull,
                                            yield_bear, yield_base, yield_bull, dpu)
 
-    st.markdown('<div class="section-header">Results: REIT Valuation</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header">📊 Results: REIT Valuation</div>', unsafe_allow_html=True)
 
     tab1, tab2 = st.tabs(["Method 1 — Price/FFO Multiple", "Method 2 — Dividend Yield"])
 
@@ -1528,7 +1529,7 @@ if asset_type == "REIT":
                 st.markdown(f'<div class="metric-card {css}" style="margin-top:0.5rem;color:#111827;"><div class="label">Signal</div><div class="value" style="color:#111827;">{sig}</div></div>', unsafe_allow_html=True)
 
     # Range chart
-    st.markdown('<div class="section-header">Fair Value Range</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header">📈 Fair Value Range</div>', unsafe_allow_html=True)
     chart_data = pd.DataFrame({
         "Scenario": ["Bear", "Base", "Bull", "Current price"],
         "Price/FFO method": [ffo_results["Bear"], ffo_results["Base"], ffo_results["Bull"], current_price],
@@ -1579,7 +1580,7 @@ if asset_type == "REIT":
 # BANK VALUATION
 # ═══════════════════════════════════════════════════════════════════════════════
 elif asset_type == "Bank":
-    st.markdown('<div class="section-header">Bank Inputs</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header">🏦 Bank Inputs</div>', unsafe_allow_html=True)
 
     col_l, col_r = st.columns([1, 1], gap="large")
 
@@ -1612,7 +1613,7 @@ elif asset_type == "Bank":
     pb_results = pb_roe_price(book, roe, coe_bear, coe_base, coe_bull)
     ddm_results = ddm_price(dps, ddm_g_bear, ddm_g_base, ddm_g_bull, coe_bear, coe_base, coe_bull)
 
-    st.markdown('<div class="section-header">Results: Bank Valuation</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header">📊 Results: Bank Valuation</div>', unsafe_allow_html=True)
 
     tab1, tab2 = st.tabs(["Method 1 — Justified P/B (ROE model)", "Method 2 — DDM cross-check"])
 
@@ -1655,7 +1656,7 @@ elif asset_type == "Bank":
         "P/B model": [pb_results["Bear"], pb_results["Base"], pb_results["Bull"], current_price],
         "DDM": [ddm_results.get("Bear"), ddm_results.get("Base"), ddm_results.get("Bull"), current_price],
     }).set_index("Scenario")
-    st.markdown('<div class="section-header">Fair Value Range</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header">📈 Fair Value Range</div>', unsafe_allow_html=True)
     st.bar_chart(chart_data)
 
     render_action_panel(current_price, pb_results["Bear"], pb_results["Base"], pb_results["Bull"], ticker, data.get("currency","") if data else "")
@@ -1698,7 +1699,7 @@ Formula: **Justified P/B = (ROE − g) / (COE − g)**
 # COMPANY — DCF
 # ═══════════════════════════════════════════════════════════════════════════════
 elif asset_type == "Company (DCF)":
-    st.markdown('<div class="section-header">DCF Inputs</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header">💹 DCF Inputs</div>', unsafe_allow_html=True)
 
     col_l, col_r = st.columns([1, 1], gap="large")
 
@@ -1776,7 +1777,7 @@ elif asset_type == "Company (DCF)":
                             wacc_bear, wacc_base, wacc_bull,
                             terminal_g, years)
 
-    st.markdown('<div class="section-header">Results: DCF Valuation</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header">📊 Results: DCF Valuation</div>', unsafe_allow_html=True)
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Bear fair value", fmt_price(dcf_results["Bear"]),
               delta=f"{(dcf_results['Bear'] - current_price)/current_price*100:.1f}% vs price")
@@ -1790,7 +1791,7 @@ elif asset_type == "Company (DCF)":
     st.markdown(f'<div class="metric-card {css}" style="margin-top:0.5rem;color:#111827;"><div class="label">Signal</div><div class="value" style="color:#111827;">{sig}</div></div>', unsafe_allow_html=True)
 
     # Terminal value breakdown
-    st.markdown('<div class="section-header">Value Breakdown (Base Case)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header">🔍 Value Breakdown (Base Case)</div>', unsafe_allow_html=True)
     w = wacc_base / 100
     g = g_base / 100
     flows_base = [fcf * (1 + g) ** t for t in range(1, years + 1)]
@@ -1811,7 +1812,7 @@ elif asset_type == "Company (DCF)":
         "Scenario": ["Bear", "Base", "Bull", "Current price"],
         "Fair value ($)": [dcf_results["Bear"], dcf_results["Base"], dcf_results["Bull"], current_price],
     }).set_index("Scenario")
-    st.markdown('<div class="section-header">Fair Value Range</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header">📈 Fair Value Range</div>', unsafe_allow_html=True)
     st.bar_chart(chart_data)
 
     render_action_panel(current_price, dcf_results["Bear"], dcf_results["Base"], dcf_results["Bull"], ticker, data.get("currency","") if data else "")
@@ -1859,7 +1860,7 @@ elif asset_type == "Company (DCF)":
 # COMPANY — DDM
 # ═══════════════════════════════════════════════════════════════════════════════
 elif asset_type == "Company (DDM)":
-    st.markdown('<div class="section-header">DDM Inputs</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header">💰 DDM Inputs</div>', unsafe_allow_html=True)
     st.info("DDM works best for stable dividend-paying companies with predictable payout ratios (utilities, consumer staples, telcos).")
 
     col_l, col_r = st.columns([1, 1], gap="large")
@@ -1888,7 +1889,7 @@ elif asset_type == "Company (DDM)":
 
     ddm_results = ddm_price(dps_val, g_bear, g_base, g_bull, coe_bear, coe_base, coe_bull)
 
-    st.markdown('<div class="section-header">Results: DDM Valuation</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header">📊 Results: DDM Valuation</div>', unsafe_allow_html=True)
     c1, c2, c3, c4 = st.columns(4)
     bv = ddm_results.get("Bear")
     bav = ddm_results.get("Base")
@@ -1910,7 +1911,7 @@ elif asset_type == "Company (DDM)":
 
     # Current yield context
     curr_yield = dps_val / current_price * 100
-    st.markdown('<div class="section-header">Yield Context</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header">💰 Yield Context</div>', unsafe_allow_html=True)
     y1, y2, y3 = st.columns(3)
     y1.metric("Current yield", f"{curr_yield:.2f}%")
     y2.metric("Bear yield (at bear price)", f"{dps_val/bv*100:.2f}%" if bv else "—")
@@ -1920,7 +1921,7 @@ elif asset_type == "Company (DDM)":
         "Scenario": ["Bear", "Base", "Bull", "Current price"],
         "Fair value": [bv, bav, blv, current_price],
     }).set_index("Scenario")
-    st.markdown('<div class="section-header">Fair Value Range</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header">📈 Fair Value Range</div>', unsafe_allow_html=True)
     st.bar_chart(chart_data)
 
     if bv and bav and blv:
