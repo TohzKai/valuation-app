@@ -47,10 +47,13 @@ st.markdown("""
 # FCF/share is the key DCF input. Update after each earnings season.
 # Last updated: April 2026
 SGX_DATA = {
-    # ── SGX Banks ─────────────────────────────────────────────────────────────
-    "O39.SI": {"name": "OCBC Bank",              "sector": "Banking",           "pe": 11.9, "book": 9.80,  "roe": 0.135, "dps": 0.88,  "beta": 0.75, "fcf_per_share": None},
-    "D05.SI": {"name": "DBS Group",              "sector": "Banking",           "pe": 11.2, "book": 19.20, "roe": 0.180, "dps": 2.16,  "beta": 0.85, "fcf_per_share": None},
-    "U11.SI": {"name": "UOB",                    "sector": "Banking",           "pe": 10.5, "book": 25.10, "roe": 0.130, "dps": 1.70,  "beta": 0.80, "fcf_per_share": None},
+    # ── SGX Banks — updated FY2025 ───────────────────────────────────────────
+    # OCBC FY2025: profit $7.8B, ROE ~13%, DPS $0.99 ordinary + $0.16 special = $1.15 total
+    # DBS FY2024: profit $11.4B, ROE 18%, DPS $2.22 ordinary + capital return
+    # UOB FY2025: ROE ~13%, DPS includes $0.50 special (90th anniversary)
+    "O39.SI": {"name": "OCBC Bank",              "sector": "Banking",           "pe": 10.5, "book": 11.20, "roe": 0.130, "dps": 1.15,  "beta": 0.75, "fcf_per_share": None, "_updated": "FY2025"},
+    "D05.SI": {"name": "DBS Group",              "sector": "Banking",           "pe": 11.0, "book": 23.00, "roe": 0.180, "dps": 2.22,  "beta": 0.85, "fcf_per_share": None, "_updated": "FY2024"},
+    "U11.SI": {"name": "UOB",                    "sector": "Banking",           "pe": 10.2, "book": 27.50, "roe": 0.130, "dps": 2.00,  "beta": 0.80, "fcf_per_share": None, "_updated": "FY2025"},
     # ── SGX REITs ─────────────────────────────────────────────────────────────
     "C38U.SI": {"name": "CapitaLand Int. REIT",  "sector": "REIT - Retail",     "pe": 18.5, "book": 2.10,  "roe": 0.055, "dps": 0.108, "beta": 0.70, "fcf_per_share": None},
     "A17U.SI": {"name": "CapitaLand Ascendas",   "sector": "REIT - Industrial", "pe": 20.1, "book": 1.85,  "roe": 0.050, "dps": 0.153, "beta": 0.65, "fcf_per_share": None},
@@ -367,6 +370,145 @@ def fetch_buy_sell_pressure(ticker: str) -> dict:
         pass
     return {}
 
+
+def calculate_technicals(hist_df):
+    """Calculate RSI(14), MA50, MA200 from price history dataframe."""
+    if hist_df is None or hist_df.empty or len(hist_df) < 20:
+        return {}
+    closes = hist_df["Close"].dropna()
+    result = {}
+    # Moving averages
+    if len(closes) >= 50:
+        result["ma50"] = round(closes.rolling(50).mean().iloc[-1], 2)
+    if len(closes) >= 200:
+        result["ma200"] = round(closes.rolling(200).mean().iloc[-1], 2)
+    # RSI(14)
+    if len(closes) >= 15:
+        delta = closes.diff()
+        gain = delta.clip(lower=0).rolling(14).mean()
+        loss = (-delta.clip(upper=0)).rolling(14).mean()
+        rs = gain / loss.replace(0, float('nan'))
+        rsi_series = 100 - (100 / (1 + rs))
+        result["rsi"] = round(rsi_series.iloc[-1], 1)
+    # Last 30 days RSI for mini chart
+    if len(closes) >= 30:
+        delta = closes.diff()
+        gain = delta.clip(lower=0).rolling(14).mean()
+        loss = (-delta.clip(upper=0)).rolling(14).mean()
+        rs = gain / loss.replace(0, float('nan'))
+        rsi_all = (100 - (100 / (1 + rs))).dropna()
+        result["rsi_series"] = rsi_all.tail(60).tolist()
+        result["rsi_dates"] = [str(d.date()) for d in rsi_all.tail(60).index]
+    return result
+
+
+@st.cache_data(ttl=3600)
+def fetch_div_yield_history(ticker: str) -> dict:
+    """Get current and average historical dividend yield for REITs/dividend stocks."""
+    import requests
+    try:
+        # Get 3yr price history and compute avg yield
+        url = f"https://query2.finance.yahoo.com/v8/finance/chart/{ticker}?interval=1mo&range=3y"
+        h = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
+        r = requests.get(url, headers=h, timeout=10)
+        if r.status_code != 200:
+            return {}
+        js = r.json()
+        meta = js.get("chart",{}).get("result",[{}])[0].get("meta",{})
+        closes = js.get("chart",{}).get("result",[{}])[0].get("indicators",{}).get("quote",[{}])[0].get("close",[])
+        closes = [c for c in closes if c]
+        annual_dps = meta.get("dividendRate") or meta.get("trailingAnnualDividendRate")
+        if not annual_dps or not closes:
+            return {}
+        avg_price_3yr = sum(closes) / len(closes)
+        avg_yield_3yr = annual_dps / avg_price_3yr * 100
+        current_price = meta.get("regularMarketPrice") or closes[-1]
+        current_yield = annual_dps / current_price * 100 if current_price else 0
+        yield_discount = (current_yield - avg_yield_3yr) / avg_yield_3yr * 100
+        return {
+            "current_yield": round(current_yield, 2),
+            "avg_yield_3yr": round(avg_yield_3yr, 2),
+            "yield_discount": round(yield_discount, 1),
+            "annual_dps": annual_dps,
+            "avg_price_3yr": round(avg_price_3yr, 2),
+        }
+    except Exception:
+        return {}
+
+
+def send_telegram_alert(bot_token: str, chat_id: str, message: str) -> bool:
+    """Send a Telegram message. Returns True if successful."""
+    import requests
+    try:
+        url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+        r = requests.post(url, json={"chat_id": chat_id, "text": message, "parse_mode": "HTML"}, timeout=8)
+        return r.status_code == 200
+    except Exception:
+        return False
+
+def render_price_alerts(ticker, bear, base, bull, current_price, currency=""):
+    """Render price alert setup section."""
+    st.markdown('<div class="section-header">🔔 Price Alerts (Telegram)</div>', unsafe_allow_html=True)
+
+    with st.expander("Set up price alerts — free via Telegram", expanded=False):
+        st.markdown("""
+**How to set up (one-time, 3 minutes):**
+1. Open Telegram → search **@BotFather** → send `/newbot` → follow steps → copy the **bot token**
+2. Search **@userinfobot** in Telegram → send any message → copy your **Chat ID**
+3. Paste both below and click Test to confirm it works
+        """)
+        col1, col2 = st.columns(2)
+        bot_token = col1.text_input("Bot token", value=st.session_state.get("tg_token",""),
+                                     type="password", placeholder="123456:ABC-DEF...")
+        chat_id   = col2.text_input("Chat ID", value=st.session_state.get("tg_chat",""),
+                                     placeholder="123456789")
+        if bot_token: st.session_state["tg_token"] = bot_token
+        if chat_id:   st.session_state["tg_chat"]  = chat_id
+
+        if st.button("📱 Test connection"):
+            if bot_token and chat_id:
+                ok = send_telegram_alert(bot_token, chat_id,
+                    f"✅ <b>Valuation Tool</b> connected!\n\nYou will receive alerts for <b>{ticker}</b>.")
+                st.success("✅ Test message sent!") if ok else st.error("❌ Failed — check token and chat ID.")
+            else:
+                st.warning("Enter both bot token and chat ID first.")
+
+        # Alert settings
+        st.divider()
+        st.markdown("**Set price triggers:**")
+        a1, a2, a3 = st.columns(3)
+        alert_buy  = a1.checkbox(f"Alert when price drops to BUY zone (≤ {fmt_price(bear, currency)})", value=True)
+        alert_base = a2.checkbox(f"Alert when price reaches TARGET ({fmt_price(base, currency)})", value=False)
+        alert_trim = a3.checkbox(f"Alert when price hits TRIM ({fmt_price(bull, currency)})", value=False)
+
+        if st.button("💾 Save alerts for this session"):
+            if bot_token and chat_id:
+                st.session_state[f"alert_{ticker}"] = {
+                    "buy": alert_buy, "base": alert_base, "trim": alert_trim,
+                    "bear": bear, "base_price": base, "bull": bull
+                }
+                st.success(f"Alerts saved for {ticker}. They are active while this app is open.")
+                st.caption("⚠️ Alerts only fire while the app is open in your browser. For persistent alerts, keep a browser tab open or deploy on a server.")
+            else:
+                st.warning("Set up your Telegram connection first.")
+
+    # Check and fire any pending alerts
+    _alert_cfg = st.session_state.get(f"alert_{ticker}", {})
+    _tg_token  = st.session_state.get("tg_token", "")
+    _tg_chat   = st.session_state.get("tg_chat", "")
+    if _alert_cfg and _tg_token and _tg_chat and current_price:
+        msgs = []
+        if _alert_cfg.get("buy") and current_price <= _alert_cfg.get("bear", 0):
+            msgs.append(f"🟢 <b>BUY ZONE ALERT</b>\n{ticker} is now at <b>{fmt_price(current_price, currency)}</b>\nBelow buy zone: {fmt_price(_alert_cfg['bear'], currency)}\nConsider entering a position!")
+        if _alert_cfg.get("base") and current_price >= _alert_cfg.get("base_price", 999999):
+            msgs.append(f"🎯 <b>TARGET REACHED</b>\n{ticker} hit <b>{fmt_price(current_price, currency)}</b>\nBase case target: {fmt_price(_alert_cfg['base_price'], currency)}")
+        if _alert_cfg.get("trim") and current_price >= _alert_cfg.get("bull", 999999):
+            msgs.append(f"✂️ <b>TRIM ALERT</b>\n{ticker} hit <b>{fmt_price(current_price, currency)}</b>\nAbove bull case: {fmt_price(_alert_cfg['bull'], currency)}. Consider reducing position.")
+        for msg in msgs:
+            sent = send_telegram_alert(_tg_token, _tg_chat, msg)
+            if sent:
+                st.toast(f"🔔 Alert sent to Telegram!", icon="📱")
+
 def render_action_panel(current_price, bear, base, bull, ticker, currency=""):
     """Renders the Buy/Hold/Sell price panel + position sizing + price history chart."""
 
@@ -408,21 +550,45 @@ def render_action_panel(current_price, bear, base, bull, ticker, currency=""):
 
     a4.metric("Current price", fmt_price(cur, currency))
 
-    # Colour-coded interpretation
+    # Colour-coded interpretation + distance to buy zone
+    pct_to_buy = (cur - bear) / cur * 100 if cur > bear else 0
+    pct_to_bull = (bull - cur) / cur * 100 if cur < bull else 0
+
     if cur <= bear:
-        colour, msg = "#dcfce7", f"✅ STRONG BUY — price is below bear case ({fmt_price(bear, currency)}). Maximum margin of safety."
+        colour = "#dcfce7"
+        msg = f"✅ STRONG BUY — price is below the buy zone ({fmt_price(bear, currency)}). Maximum margin of safety. Deploy full allocation."
+        action_tip = ""
     elif cur <= base:
-        colour, msg = "#fef9c3", f"👀 WATCH — price between buy zone and target. Reasonable entry with smaller position."
+        colour = "#fef9c3"
+        msg = f"👀 WATCH — price is {pct_to_buy:.1f}% above the buy zone. Reasonable entry with a smaller position (50% of max allocation)."
+        action_tip = f"Set a price alert at {fmt_price(bear, currency)} for a full-position entry."
     elif cur <= bull:
-        colour, msg = "#fef3c7", f"⚠️ HOLD — price above target. Hold existing. Wait for pullback to {fmt_price(bear, currency)} before adding."
+        colour = "#fef3c7"
+        dist = pct_to_buy
+        msg = f"⚠️ HOLD — price is {dist:.1f}% above the buy zone ({fmt_price(bear, currency)}). Hold existing positions. Do not add at current price."
+        if dist < 20:
+            action_tip = f"Only {dist:.1f}% above buy zone — a small pullback could create a good entry. Set alert at {fmt_price(bear * 1.05, currency)}."
+        elif dist < 50:
+            action_tip = f"Consider DCA (dollar-cost average) monthly if this is a long-term hold. Next buy target: {fmt_price(bear, currency)}."
+        else:
+            action_tip = f"Price has run significantly. Wait for a meaningful pullback to {fmt_price(bear * 1.1, currency)} before considering entry."
     else:
-        colour, msg = "#fee2e2", f"🚫 AVOID / TRIM — price {fmt_price(cur, currency)} exceeds bull case {fmt_price(bull, currency)}. Consider reducing position."
+        colour = "#fee2e2"
+        msg = f"🚫 AVOID / TRIM — price {fmt_price(cur, currency)} exceeds the bull case {fmt_price(bull, currency)}. Risk/reward unfavourable."
+        action_tip = f"Consider trimming 25–50% of position. Re-enter if price falls back to {fmt_price(base, currency)}."
 
     st.markdown(
         f'<div style="background:{colour};border-radius:10px;padding:0.9rem 1.2rem;'
-        f'margin:0.5rem 0 1rem;font-weight:600;font-size:0.95rem;color:#111827;">{msg}</div>',
+        f'margin:0.5rem 0 0.25rem;font-weight:600;font-size:0.95rem;color:#111827;">{msg}</div>',
         unsafe_allow_html=True
     )
+    if action_tip:
+        st.markdown(
+            f'<div style="background:{colour};border-radius:0 0 10px 10px;padding:0.5rem 1.2rem;'
+            f'font-size:0.82rem;color:#374151;margin-bottom:1rem;border-top:1px solid rgba(0,0,0,0.06);">'
+            f'💡 {action_tip}</div>',
+            unsafe_allow_html=True
+        )
 
     # ── Market sentiment / buy-sell pressure ────────────────────────────────
     st.markdown('<div class="section-header">📊 Market Sentiment (5-day)</div>', unsafe_allow_html=True)
@@ -454,6 +620,34 @@ def render_action_panel(current_price, bear, base, bull, ticker, currency=""):
         st.caption("⚠️ Sentiment is 5-day volume approximation only — not a trading signal. Always base decisions on valuation fundamentals above.")
     else:
         st.info("Market sentiment unavailable for this ticker.")
+
+    # ── Dividend yield vs historical average ──────────────────────────────────
+    _dy = fetch_div_yield_history(ticker)
+    if _dy and _dy.get("current_yield") and _dy.get("avg_yield_3yr"):
+        st.markdown('<div class="section-header">💰 Dividend Yield vs 3-Year Average</div>', unsafe_allow_html=True)
+        dy1, dy2, dy3 = st.columns(3)
+        dy1.metric("Current yield", f"{_dy['current_yield']}%",
+                   delta=f"{_dy['yield_discount']:+.1f}% vs 3yr avg")
+        dy2.metric("3-year avg yield", f"{_dy['avg_yield_3yr']}%")
+        _signal_txt = (
+            "🟢 HIGH yield vs history — price may be oversold. Good entry if fundamentals intact."
+            if _dy["yield_discount"] > 20 else
+            "🟡 Slightly above average yield — mildly attractive."
+            if _dy["yield_discount"] > 5 else
+            "⚪ Yield near historical average — fairly priced on income basis."
+            if _dy["yield_discount"] > -5 else
+            "🟠 Below average yield — price has run up. Income less attractive."
+            if _dy["yield_discount"] > -20 else
+            "🔴 LOW yield vs history — price significantly above historical norms on income basis."
+        )
+        _sig_col = ("#dcfce7" if _dy["yield_discount"] > 20
+                    else "#fef9c3" if _dy["yield_discount"] > 5
+                    else "#f8fafc" if _dy["yield_discount"] > -5
+                    else "#fef3c7" if _dy["yield_discount"] > -20
+                    else "#fee2e2")
+        dy3.metric("Annual DPS", f"${_dy['annual_dps']:.3f}")
+        st.markdown(f'<div style="background:{_sig_col};border-radius:8px;padding:0.6rem 1rem;font-size:0.85rem;color:#111827;margin-top:0.3rem;">{_signal_txt}</div>', unsafe_allow_html=True)
+        st.caption("Based on 3-year monthly price history. Higher yield than average = cheaper price relative to income.")
 
     # ── Position sizing ───────────────────────────────────────────────────────
     st.markdown('<div class="section-header">📐 Position Sizing</div>', unsafe_allow_html=True)
@@ -505,10 +699,67 @@ def render_action_panel(current_price, bear, base, bull, ticker, currency=""):
             """)
 
     # ── Price vs Fair Value Band chart ───────────────────────────────────────
-    st.markdown('<div class="section-header">📈 Price vs Fair Value Band (2 Years)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header">📈 Price vs Fair Value Band + Technical Indicators</div>', unsafe_allow_html=True)
 
     hist = fetch_price_history(ticker, api_key=st.session_state.get('finnhub_key',''))
+    ta = calculate_technicals(hist)
     if hist is not None and not hist.empty:
+        # Calculate technical indicators
+        # RSI (14-day)
+        delta = hist["Close"].diff()
+        gain = delta.clip(lower=0).rolling(14).mean()
+        loss = (-delta.clip(upper=0)).rolling(14).mean()
+        rs = gain / loss.replace(0, float('nan'))
+        hist["RSI"] = 100 - (100 / (1 + rs))
+
+        # Moving averages
+        hist["MA50"]  = hist["Close"].rolling(50).mean()
+        hist["MA200"] = hist["Close"].rolling(200).mean()
+
+        # Current values for summary
+        latest_rsi  = hist["RSI"].dropna().iloc[-1] if not hist["RSI"].dropna().empty else None
+        latest_ma50 = hist["MA50"].dropna().iloc[-1] if not hist["MA50"].dropna().empty else None
+        latest_ma200= hist["MA200"].dropna().iloc[-1] if not hist["MA200"].dropna().empty else None
+        latest_price= hist["Close"].iloc[-1]
+
+        # Technical signal summary
+        t1, t2, t3 = st.columns(3)
+        if latest_rsi:
+            rsi_signal = "Oversold — potential entry" if latest_rsi < 35 else ("Overbought — wait" if latest_rsi > 65 else "Neutral")
+            rsi_color  = "green" if latest_rsi < 35 else ("red" if latest_rsi > 65 else "orange")
+            t1.metric("RSI (14-day)", f"{latest_rsi:.1f}", delta=rsi_signal)
+        if latest_ma200:
+            ma_signal = "Above 200MA — uptrend" if latest_price > latest_ma200 else "Below 200MA — caution"
+            t2.metric("vs 200-day MA", fmt_price(latest_ma200), delta=ma_signal)
+        if latest_ma50 and latest_ma200:
+            cross = "Golden cross — bullish" if latest_ma50 > latest_ma200 else "Death cross — bearish"
+            t3.metric("50MA vs 200MA", f"{latest_ma50/latest_ma200*100:.1f}%", delta=cross)
+
+        # Combined signal
+        tech_signals = []
+        if latest_rsi and latest_rsi < 40:
+            tech_signals.append("RSI oversold")
+        if latest_ma200 and latest_price < latest_ma200:
+            tech_signals.append("below 200MA")
+        range_pos_val = (latest_price - hist["Close"].min()) / (hist["Close"].max() - hist["Close"].min()) * 100
+        if range_pos_val < 30:
+            tech_signals.append("near 52w low")
+
+        if tech_signals and cur <= bear:
+            tech_banner = f"🟢 STRONG ENTRY SIGNAL — Valuation BUY + {', '.join(tech_signals)}"
+            tech_colour = "#dcfce7"
+        elif tech_signals:
+            tech_banner = f"👀 TECHNICAL OVERSOLD ({', '.join(tech_signals)}) — watch for valuation entry"
+            tech_colour = "#fef9c3"
+        elif cur <= bull:
+            tech_banner = "📊 No technical oversold signal — wait for RSI < 40 or price near 52w low before adding"
+            tech_colour = "#f1f5f9"
+        else:
+            tech_banner = "⚠️ Technically extended — RSI elevated and price above trend. Not a good entry point."
+            tech_colour = "#fee2e2"
+
+        st.markdown(f'<div style="background:{tech_colour};border-radius:10px;padding:0.75rem 1rem;margin:0.5rem 0;font-size:0.85rem;font-weight:500;color:#111827;">{tech_banner}</div>', unsafe_allow_html=True)
+
         hist["Buy zone (bear)"] = bear
         hist["Target (base)"] = base
         hist["Trim (bull)"] = bull
@@ -516,7 +767,16 @@ def render_action_panel(current_price, bear, base, bull, ticker, currency=""):
         import altair as alt
 
         hist_reset = hist.reset_index()
-        hist_reset.columns = ["Date", "Price", "Buy zone", "Target", "Trim"]
+        # Rename columns carefully based on what's in hist now
+        base_cols = ["Date", "Price", "Buy zone", "Target", "Trim"]
+        extra_cols = [c for c in hist_reset.columns[len(base_cols):]]
+        hist_reset.columns = base_cols + extra_cols
+
+        # Add MA columns if calculated
+        if "MA50" in hist.columns:
+            hist_reset["MA50"]  = hist["MA50"].values
+        if "MA200" in hist.columns:
+            hist_reset["MA200"] = hist["MA200"].values
 
         base_chart = alt.Chart(hist_reset)
 
@@ -525,45 +785,94 @@ def render_action_panel(current_price, bear, base, bull, ticker, currency=""):
             y=alt.Y("Buy zone:Q", title="Price", scale=alt.Scale(zero=False)),
             y2="Trim:Q"
         )
-        # Current price horizontal line
         cur_df = hist_reset.copy()
         cur_df["Current"] = cur
         cur_line = alt.Chart(cur_df).mark_line(
             color="#f59e0b", strokeDash=[6,3], strokeWidth=1.5, opacity=0.6
         ).encode(x="Date:T", y="Current:Q")
-
         price_line = base_chart.mark_line(color="#f59e0b", strokeWidth=2.5).encode(
             x="Date:T",
             y=alt.Y("Price:Q", scale=alt.Scale(zero=False)),
-            tooltip=[
-                alt.Tooltip("Date:T", title="Date"),
-                alt.Tooltip("Price:Q", title="Price", format=".2f")
-            ]
+            tooltip=[alt.Tooltip("Date:T", title="Date"), alt.Tooltip("Price:Q", title="Price", format=".2f")]
         )
-
         bear_line = base_chart.mark_line(color="#dc2626", strokeDash=[4,2], strokeWidth=1.5).encode(
             x="Date:T", y="Buy zone:Q"
         )
-
         base_line = base_chart.mark_line(color="#2563eb", strokeDash=[4,2], strokeWidth=1.5).encode(
             x="Date:T", y="Target:Q"
         )
-
         bull_line = base_chart.mark_line(color="#16a34a", strokeDash=[4,2], strokeWidth=1.5).encode(
             x="Date:T", y="Trim:Q"
         )
-
-        chart = (band + cur_line + price_line + bear_line + base_line + bull_line).properties(
-            height=320
-        ).encode(
+        layers = [band, cur_line, price_line, bear_line, base_line, bull_line]
+        if ta.get("ma50"):
+            ma50_df = hist_reset.copy()
+            ma50_df["MA50"] = hist["Close"].rolling(50).mean().values[:len(hist_reset)]
+            layers.append(alt.Chart(ma50_df).mark_line(color="#a78bfa", strokeWidth=1.5, opacity=0.9).encode(
+                x="Date:T", y=alt.Y("MA50:Q", scale=alt.Scale(zero=False))))
+        if ta.get("ma200"):
+            ma200_df = hist_reset.copy()
+            ma200_df["MA200"] = hist["Close"].rolling(200).mean().values[:len(hist_reset)]
+            layers.append(alt.Chart(ma200_df).mark_line(color="#fb923c", strokeWidth=1.5, opacity=0.9).encode(
+                x="Date:T", y=alt.Y("MA200:Q", scale=alt.Scale(zero=False))))
+        chart = alt.layer(*layers).properties(height=320).encode(
             x=alt.X("Date:T", scale=alt.Scale(domain=[
                 hist_reset["Date"].min().isoformat(),
                 hist_reset["Date"].max().isoformat()
             ]))
         ).interactive()
-
         st.altair_chart(chart, use_container_width=True)
-        st.caption("🟡 Actual price  ·  🔴 BUY below (bear case)  ·  🔵 TARGET (base case)  ·  🟢 TRIM (bull case)")
+        ma_caption = "🟡 Price  ·  🔴 BUY  ·  🔵 TARGET  ·  🟢 TRIM"
+        if ta.get("ma50"): ma_caption += "  ·  🟣 MA50"
+        if ta.get("ma200"): ma_caption += "  ·  🟠 MA200"
+
+        # ── RSI + Technical Panel ────────────────────────────────────────────
+        if ta.get("rsi"):
+            rsi_val = ta["rsi"]
+            st.markdown('<div class="section-header">📉 RSI (14-day) & Moving Averages</div>', unsafe_allow_html=True)
+            r1, r2, r3 = st.columns(3)
+            r1.metric("RSI (14)", f"{rsi_val}",
+                      delta="Oversold — watch for entry" if rsi_val < 35 else
+                            "Overbought — avoid adding" if rsi_val > 65 else "Neutral")
+            r2.metric("MA50", fmt_price(ta.get("ma50"), currency) if ta.get("ma50") else "—",
+                      delta=f"{(cur/ta['ma50']-1)*100:+.1f}% price vs MA50" if ta.get("ma50") else None)
+            r3.metric("MA200", fmt_price(ta.get("ma200"), currency) if ta.get("ma200") else "—",
+                      delta=f"{(cur/ta['ma200']-1)*100:+.1f}% price vs MA200" if ta.get("ma200") else None)
+
+            if rsi_val < 30:
+                rsi_msg, rsi_col = f"🟢 RSI {rsi_val} — OVERSOLD. Best entry zone when valuation also says BUY.", "#dcfce7"
+            elif rsi_val < 40:
+                rsi_msg, rsi_col = f"🟡 RSI {rsi_val} — Approaching oversold. Watch closely. Consider partial entry.", "#fef9c3"
+            elif rsi_val < 60:
+                rsi_msg, rsi_col = f"⚪ RSI {rsi_val} — Neutral. No strong technical signal either way.", "#f8fafc"
+            elif rsi_val < 70:
+                rsi_msg, rsi_col = f"🟠 RSI {rsi_val} — Approaching overbought. Momentum strong but stretched.", "#fef3c7"
+            else:
+                rsi_msg, rsi_col = f"🔴 RSI {rsi_val} — OVERBOUGHT. Do not add. Wait for RSI to fall below 50.", "#fee2e2"
+            st.markdown(f'<div style="background:{rsi_col};border-radius:8px;padding:0.7rem 1rem;font-size:0.85rem;color:#111827;margin:0.5rem 0;">{rsi_msg}</div>', unsafe_allow_html=True)
+
+            # ── Combined signal ───────────────────────────────────────────────
+            st.markdown('<div class="section-header">🎯 Combined Signal (Valuation + RSI)</div>', unsafe_allow_html=True)
+            val_z = "buy" if cur <= bear else "watch" if cur <= base else "hold" if cur <= bull else "avoid"
+            rsi_z = "buy" if rsi_val < 40 else "neutral" if rsi_val < 60 else "avoid"
+            combos = {
+                ("buy","buy"):     ("#dcfce7","🟢 STRONG ENTRY — Valuation cheap + RSI oversold. Best combination. Deploy full allocation."),
+                ("buy","neutral"): ("#dcfce7","🟢 GOOD ENTRY — Valuation cheap, neutral RSI. Good risk/reward. Enter 50–75% of allocation."),
+                ("buy","avoid"):   ("#fef9c3","🟡 Valuation BUY but RSI overbought — wait for RSI to cool below 55 before entering."),
+                ("watch","buy"):   ("#fef9c3","🟡 Near buy zone + RSI oversold — good for averaging in. Start with 25–50% of allocation."),
+                ("watch","neutral"):("#fef9c3","🟡 WATCH — Between buy and target, neutral RSI. DCA monthly if long-term conviction."),
+                ("watch","avoid"): ("#fef3c7","⚠️ Near buy zone but overbought — mixed signal. Wait for RSI to normalise."),
+                ("hold","buy"):    ("#fef9c3","🟡 HOLD + RSI oversold — price pulled back within fair value. Small entry acceptable."),
+                ("hold","neutral"):("#fef3c7","⚠️ HOLD — Fair valued, neutral RSI. No new buying. Collect dividends and wait for buy zone."),
+                ("hold","avoid"):  ("#fee2e2","🔴 HOLD + Overbought — Do not add. Pullback likely. Set alert at buy zone price."),
+                ("avoid","buy"):   ("#fef9c3","🟡 Expensive + RSI oversold — short-term bounce possible only. Not for long-term accumulation."),
+                ("avoid","neutral"):("#fee2e2","🔴 AVOID — Above bull case, neutral RSI. Trim 25% if held. No new buying."),
+                ("avoid","avoid"): ("#fee2e2","🔴 STRONG AVOID — Above bull case + overbought. Worst entry point. Trim position."),
+            }
+            c_col, c_msg = combos.get((val_z, rsi_z), ("#f8fafc","⚪ Mixed signals — use business quality and conviction to decide."))
+            st.markdown(f'<div style="background:{c_col};border-radius:10px;padding:1rem 1.2rem;font-weight:600;font-size:0.95rem;color:#111827;margin-bottom:0.5rem;">{c_msg}</div>', unsafe_allow_html=True)
+            st.caption("Combined signal = valuation zone × RSI zone. Always verify business fundamentals independently. Not financial advice.")
+        st.caption("🟡 Price  ·  🔴 BUY (bear)  ·  🔵 TARGET (base)  ·  🟢 TRIM (bull)  ·  🟣 50-day MA  ·  🔶 200-day MA")
 
         # How many days was stock in buy zone?
         days_in_buy = (hist["Close"] <= bear).sum()
@@ -578,8 +887,12 @@ def render_action_panel(current_price, bear, base, bull, ticker, currency=""):
                   delta=f"{days_in_hold/days_total*100:.0f}% of time")
         d3.metric("Days above trim price", f"{days_above_sell} / {days_total}",
                   delta=f"{days_above_sell/days_total*100:.0f}% of time")
+
     else:
         st.info("Could not load price history for this ticker. Check the ticker symbol includes .SI for SGX stocks.")
+
+    # ── Price alerts ──────────────────────────────────────────────────────
+    render_price_alerts(ticker, bear, base, bull, cur, currency)
 
 
 
@@ -812,7 +1125,7 @@ def render_ai_analysis(ticker, asset_type, current_price, bear, base, bull,
     # Score gauge
     gauge_colour = verdict_colour
     st.markdown(f"""
-<div style="background:#0f172a;border:1px solid #1e293b;border-radius:12px;padding:1.2rem 1.5rem;margin-bottom:1rem;">
+<div style="background:var(--color-background-secondary,#f8fafc);border:1px solid var(--color-border-tertiary,#e2e8f0);border-radius:12px;padding:1.2rem 1.5rem;margin-bottom:1rem;">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;">
     <div>
       <div style="font-size:0.75rem;color:#64748b;margin-bottom:2px;">Overall score</div>
@@ -823,10 +1136,10 @@ def render_ai_analysis(ticker, asset_type, current_price, bear, base, bull,
       <div style="font-size:2rem;font-weight:700;color:{gauge_colour};">{score}/100</div>
     </div>
   </div>
-  <div style="background:#1e293b;border-radius:99px;height:10px;">
+  <div style="background:var(--color-border-tertiary,#e2e8f0);border-radius:99px;height:10px;">
     <div style="background:{gauge_colour};width:{score}%;height:100%;border-radius:99px;"></div>
   </div>
-  <div style="margin-top:0.75rem;font-size:0.9rem;color:#cbd5e1;font-weight:500;">{action}</div>
+  <div style="margin-top:0.75rem;font-size:0.9rem;color:var(--color-text-primary,#1e293b);font-weight:500;">{action}</div>
 </div>""", unsafe_allow_html=True)
 
     # 4 analysis cards
@@ -839,10 +1152,11 @@ def render_ai_analysis(ticker, asset_type, current_price, bear, base, bull,
 
     for title, colour, body in cards:
         st.markdown(f"""
-<div style="border-left:3px solid {colour};background:#0f172a;padding:0.8rem 1rem;
-     margin:0.5rem 0;border-radius:0 8px 8px 0;">
+<div style="border-left:3px solid {colour};background:var(--color-background-secondary, #f8fafc);
+     padding:0.8rem 1rem;margin:0.5rem 0;border-radius:0 8px 8px 0;
+     border-top:0.5px solid #e2e8f0;border-right:0.5px solid #e2e8f0;border-bottom:0.5px solid #e2e8f0;">
   <div style="font-size:0.75rem;font-weight:600;color:{colour};margin-bottom:4px;">{title}</div>
-  <div style="font-size:0.875rem;color:#cbd5e1;line-height:1.65;">{body}</div>
+  <div style="font-size:0.875rem;color:var(--color-text-secondary,#475569);line-height:1.65;">{body}</div>
 </div>""", unsafe_allow_html=True)
 
     st.caption("⚠️ Rule-based analysis only. Not financial advice. Always verify with primary sources and your own research.")
@@ -917,7 +1231,7 @@ def ffo_price(ffo_per_unit, pb_bear, pb_base, pb_bull,
 def pb_roe_price(book, roe, coe_bear, coe_base, coe_bull):
     """Gordon Growth variant for banks: P/B = (ROE - g) / (COE - g)"""
     results = {}
-    g = 0.03  # assumed long-run growth
+    g = 0.04  # assumed long-run growth for SG banks (conservative but not extreme)
     roe_dec = (roe or 0.10)
     for label, coe in [
         ("Bear", coe_bear / 100),
@@ -967,13 +1281,50 @@ def auto_detect_asset_type(ticker: str) -> str:
         return "Bank"
     return "Company (DCF)"
 
+
+# ── Watchlist helpers ─────────────────────────────────────────────────────────
+def save_to_watchlist(ticker, asset_type, notes=""):
+    """Save ticker to watchlist in session state."""
+    if "watchlist" not in st.session_state:
+        st.session_state.watchlist = {}
+    st.session_state.watchlist[ticker.upper()] = {
+        "asset_type": asset_type,
+        "notes": notes,
+        "added": pd.Timestamp.now().strftime("%d %b %Y")
+    }
+
+def remove_from_watchlist(ticker):
+    if "watchlist" in st.session_state and ticker in st.session_state.watchlist:
+        del st.session_state.watchlist[ticker]
+
+def render_watchlist_sidebar():
+    """Render compact watchlist in sidebar."""
+    wl = st.session_state.get("watchlist", {})
+    if not wl:
+        return
+    st.markdown("**📋 Watchlist**")
+    for t, info in list(wl.items()):
+        col_a, col_b = st.columns([3, 1])
+        if col_a.button(f"{t} · {info['asset_type'][:4]}", key=f"wl_{t}",
+                        use_container_width=True, help=f"Added {info['added']}"):
+            st.session_state["load_ticker"] = t
+            st.session_state["load_asset_type"] = info["asset_type"]
+            st.rerun()
+        if col_b.button("✕", key=f"wl_rm_{t}"):
+            remove_from_watchlist(t)
+            st.rerun()
+
 # ── Sidebar: ticker + asset type ─────────────────────────────────────────────
 with st.sidebar:
     st.markdown("## 📊 Valuation Tool")
     st.markdown("*Bear / Base / Bull scenarios*")
     st.divider()
 
-    ticker_input = st.text_input("Ticker symbol", value="O39.SI",
+    # Load from watchlist click if triggered
+    _default_ticker = st.session_state.pop("load_ticker", "O39.SI")
+    _default_asset  = st.session_state.pop("load_asset_type", None)
+
+    ticker_input = st.text_input("Ticker symbol", value=_default_ticker,
                                  help="SGX: e.g. C38U.SI (CapitaLand REIT)\nUS: e.g. O (Realty Income)\nBank: e.g. D05.SI (DBS)")
 
     # Auto-detect asset type
@@ -1020,6 +1371,16 @@ with st.sidebar:
         st.cache_data.clear()
         st.success("Cache cleared!")
 
+    # Save to watchlist
+    _cur_ticker = ticker_input.strip().upper()
+    _cur_asset  = _default_asset or auto_detect_asset_type(_cur_ticker)
+    if st.button("⭐ Save to watchlist", use_container_width=True):
+        save_to_watchlist(_cur_ticker, _cur_asset)
+        st.success(f"{_cur_ticker} saved!")
+
+    st.divider()
+    render_watchlist_sidebar()
+
     st.markdown("---")
     st.caption("Data via Finnhub · For educational use only · Not financial advice")
 
@@ -1046,24 +1407,43 @@ if data:
     curr = data.get("currency", "SGD")
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Company", data.get("name","")[:28] or "—")
-    price_label = "Live price" if data.get("price") else "Prev close"
+    _now_sgt = pd.Timestamp.now(tz="Asia/Singapore")
+    _is_sgx  = ticker.endswith(".SI")
+    _mkt_open = (9 <= _now_sgt.hour < 17) and (_now_sgt.weekday() < 5)
+    if live_price:
+        price_label = "Live (20min delay)" if _is_sgx else "Price (real-time)"
+    else:
+        price_label = "Prev close"
     c2.metric(price_label, fmt_price(live_price, curr) if live_price else "—")
     c3.metric("Sector", data.get("sector") or "—")
     c4.metric("P/E ratio", f"{data.get('pe'):.1f}x" if data.get("pe") else "—")
 
-    # Ask / Bid / Day range row
+    # Market data row — always-available data only
     if _mkt:
         m1, m2, m3, m4, m5 = st.columns(5)
-        m1.metric("Bid", fmt_price(_mkt.get("bid"), curr) if _mkt.get("bid") else "—")
-        m2.metric("Ask", fmt_price(_mkt.get("ask"), curr) if _mkt.get("ask") else "—")
-        m3.metric("Day high", fmt_price(_mkt.get("day_high"), curr) if _mkt.get("day_high") else "—")
-        m4.metric("Day low", fmt_price(_mkt.get("day_low"), curr) if _mkt.get("day_low") else "—")
-        m5.metric("Prev close", fmt_price(_mkt.get("prev_close"), curr) if _mkt.get("prev_close") else "—")
+        m1.metric("Prev close",   fmt_price(_mkt.get("prev_close"), curr) if _mkt.get("prev_close") else "—")
+        m2.metric("Day high",     fmt_price(_mkt.get("day_high"), curr) if _mkt.get("day_high") else "—")
+        m3.metric("Day low",      fmt_price(_mkt.get("day_low"), curr) if _mkt.get("day_low") else "—")
+        m4.metric("52w high",     fmt_price(_mkt.get("high52"), curr) if _mkt.get("high52") else "—")
+        m5.metric("52w low",      fmt_price(_mkt.get("low52"), curr) if _mkt.get("low52") else "—")
+        # Bid/ask removed — only available during market hours, too confusing when empty
 
     if not live_price:
-        st.info("💡 Live price unavailable — using manual override. Get a free Finnhub key at [finnhub.io](https://finnhub.io) for live prices.")
+        st.info("💡 Live price unavailable — enter your Finnhub key in sidebar or use manual override below.")
+    # Data freshness strip
+    _ref_check = SGX_DATA.get(ticker, {})
+    _ref_year = _ref_check.get("_updated", "FY2024") if _ref_check else "live"
+    _fund_src = f"Reference table ({_ref_year}) — verify after next earnings" if _ref_check else "Finnhub live data"
+    _price_src = "SGX Exchange: 20-min delayed" if ticker.endswith(".SI") else "US market: real-time"
+    st.markdown(
+        f'<div style="background:#f8fafc;border:0.5px solid #e2e8f0;border-radius:8px;padding:5px 14px;'
+        f'font-size:0.72rem;color:#64748b;margin-bottom:0.25rem;">'
+        f'🕐 Price data: {_price_src} &nbsp;·&nbsp; 📋 Fundamentals: {_fund_src}'
+        f'</div>',
+        unsafe_allow_html=True
+    )
 else:
-    st.info("💡 **Enter your Finnhub API key** in the sidebar for live prices. Get a free key at [finnhub.io](https://finnhub.io). You can still use the valuation models manually without it.")
+    st.info("💡 Enter Finnhub API key in sidebar for live prices. Get free key at [finnhub.io](https://finnhub.io).")
 
 st.divider()
 
@@ -1193,12 +1573,14 @@ elif asset_type == "Bank":
                                         step=0.05, format="%.2f")
 
     with col_r:
-        st.markdown("**Cost of Equity (COE) by scenario**")
-        st.caption("COE = risk-free rate + beta × equity risk premium. DBS/OCBC typically 8–11%.")
-        coe_bear = st.slider("Bear COE — %", 8.0, 16.0, 12.0, 0.5,
-                             help="High rates / low growth environment")
-        coe_base = st.slider("Base COE — %", 7.0, 14.0, 9.5, 0.5)
-        coe_bull = st.slider("Bull COE — %", 5.0, 12.0, 7.5, 0.5)
+        st.markdown("**Market scenario assumptions**")
+        st.caption("These set how much return investors demand. Higher = lower fair value. Defaults set for Singapore 2026.")
+        coe_bear = st.slider("😰 Stressed (rates rise / recession) %", 8.0, 14.0, 10.5, 0.5,
+                             help="Example: MAS raises rates, Singapore economy slows, investors demand more return = lower P/B")
+        coe_base = st.slider("😐 Normal market conditions %", 6.5, 12.0, 8.5, 0.5,
+                             help="Current SG environment: 10yr bond ~2.8% + risk premium ~6% = ~8.5%")
+        coe_bull = st.slider("😊 Optimistic (rate cuts / strong growth) %", 5.0, 10.0, 7.0, 0.5,
+                             help="Rate cuts materialise, risk appetite high, investors accept lower return = higher P/B")
 
         st.markdown("**DDM (dividend cross-check)**")
         ddm_g_bear = st.slider("Dividend growth — Bear %", 0.0, 8.0, 1.0, 0.5)
@@ -1362,12 +1744,11 @@ elif asset_type == "Company (DCF)":
         g_base = st.slider("Base FCF growth (%/yr)", 0.0, 30.0, _g_base, 0.5)
         g_bull = st.slider("Bull FCF growth (%/yr)", 5.0, 40.0, _g_bull, 0.5)
 
-        st.markdown("**WACC / Discount Rate by scenario**")
-        st.caption("WACC = cost of capital. US stocks typically 8–12%. SGX stocks 7–10%.")
-        wacc_bear = st.slider("Bear WACC (%)", 8.0, 18.0, _wacc_bear, 0.5,
-                              help="Stressed: high rates, high risk premium")
-        wacc_base = st.slider("Base WACC (%)", 6.0, 15.0, _wacc_base, 0.5)
-        wacc_bull = st.slider("Bull WACC (%)", 4.0, 12.0, _wacc_bull, 0.5)
+        st.markdown("**Market scenario assumptions**")
+        st.caption("Higher % = more conservative fair value. US tech typically 9–12%. SGX blue chips 7–9%.")
+        wacc_bear = st.slider("😰 Stressed (high rates / slow growth) %", 8.0, 18.0, _wacc_bear, 0.5)
+        wacc_base = st.slider("😐 Normal conditions %", 6.0, 15.0, _wacc_base, 0.5)
+        wacc_bull = st.slider("😊 Optimistic (rate cuts / strong growth) %", 4.0, 12.0, _wacc_bull, 0.5)
 
     dcf_results = dcf_price(fcf, g_bear, g_base, g_bull,
                             wacc_bear, wacc_base, wacc_bull,
@@ -1478,10 +1859,10 @@ elif asset_type == "Company (DDM)":
         g_base = st.slider("Base growth (%/yr)", 0.0, 12.0, 4.0, 0.5)
         g_bull = st.slider("Bull growth (%/yr)", 2.0, 15.0, 7.0, 0.5)
 
-        st.markdown("**Cost of equity (COE) by scenario**")
-        coe_bear = st.slider("Bear COE (%)", 7.0, 16.0, 11.0, 0.5)
-        coe_base = st.slider("Base COE (%)", 5.0, 14.0, 8.0, 0.5)
-        coe_bull = st.slider("Bull COE (%)", 3.0, 12.0, 6.0, 0.5)
+        st.markdown("**Market scenario assumptions**")
+        coe_bear = st.slider("😰 Stressed scenario %", 7.0, 16.0, 11.0, 0.5)
+        coe_base = st.slider("😐 Normal conditions %", 5.0, 14.0, 8.0, 0.5)
+        coe_bull = st.slider("😊 Optimistic scenario %", 3.0, 12.0, 6.0, 0.5)
 
     ddm_results = ddm_price(dps_val, g_bear, g_base, g_bull, coe_bear, coe_base, coe_bull)
 
