@@ -31,9 +31,13 @@ st.markdown("""
     .hold  { background: #fef9c3; border-color: #fde047; }
     .avoid { background: #fee2e2; border-color: #fca5a5; }
     .section-header {
-        font-size: 1.1rem; font-weight: 700; color: #1e293b;
+        font-size: 1rem; font-weight: 700;
+        color: var(--text-color, #1e293b);
         border-bottom: 2px solid #e2e8f0;
-        padding-bottom: 0.4rem; margin-bottom: 1rem; margin-top: 1.5rem;
+        padding: 0.5rem 0 0.4rem 0;
+        margin-bottom: 1rem; margin-top: 1.5rem;
+        display: block; width: 100%;
+        background: transparent;
     }
     div[data-testid="stMetric"] label { font-size: 0.75rem !important; }
     /* Force dark text on all coloured signal banners — readable in dark mode */
@@ -457,13 +461,31 @@ def render_price_alerts(ticker, bear, base, bull, current_price, currency=""):
 2. Search **@userinfobot** in Telegram → send any message → copy your **Chat ID**
 3. Paste both below and click Test to confirm it works
         """)
-        col1, col2 = st.columns(2)
-        bot_token = col1.text_input("Bot token", value=st.session_state.get("tg_token",""),
-                                     type="password", placeholder="123456:ABC-DEF...")
-        chat_id   = col2.text_input("Chat ID", value=st.session_state.get("tg_chat",""),
-                                     placeholder="123456789")
-        if bot_token: st.session_state["tg_token"] = bot_token
-        if chat_id:   st.session_state["tg_chat"]  = chat_id
+        # Load from Streamlit Secrets first (preferred — token never typed in app)
+        try:
+            _secret_token = st.secrets.get("TELEGRAM_BOT_TOKEN", "")
+            _secret_chat  = st.secrets.get("TELEGRAM_CHAT_ID", "")
+        except Exception:
+            _secret_token, _secret_chat = "", ""
+
+        if _secret_token:
+            st.success("✅ Bot token loaded from Streamlit Secrets — no need to enter here.")
+            bot_token = _secret_token
+            st.session_state["tg_token"] = _secret_token
+        else:
+            bot_token = st.text_input("Bot token", value=st.session_state.get("tg_token",""),
+                                      type="password", placeholder="123456:ABC-DEF...")
+            if bot_token: st.session_state["tg_token"] = bot_token
+            st.caption("💡 Better: add TELEGRAM_BOT_TOKEN to Streamlit Secrets so it never appears here.")
+
+        if _secret_chat:
+            chat_id = _secret_chat
+            st.session_state["tg_chat"] = _secret_chat
+            st.success(f"✅ Chat ID loaded from Secrets.")
+        else:
+            chat_id = st.text_input("Chat ID", value=st.session_state.get("tg_chat",""),
+                                    placeholder="123456789")
+            if chat_id: st.session_state["tg_chat"] = chat_id
 
         if st.button("📱 Test connection"):
             if bot_token and chat_id:
