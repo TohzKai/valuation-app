@@ -42,28 +42,56 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# ── SGX stock reference table (Yahoo Finance missing data fallback) ──────────
-# Yahoo Finance does not reliably return sector/PE/fundamentals for SGX stocks.
-# This table fills in known data for common SG stocks. Update after each earnings.
+# ── Stock reference table (Yahoo Finance missing data fallback) ──────────────
+# Covers SGX stocks (Yahoo rarely returns fundamentals) and major US stocks.
+# FCF/share is the key DCF input. Update after each earnings season.
+# Last updated: April 2026
 SGX_DATA = {
-    # Banks
-    "O39.SI": {"name": "OCBC Bank",         "sector": "Banking",          "pe": 9.8,  "book": 9.80,  "roe": 0.135, "dps": 0.88, "beta": 0.75},
-    "D05.SI": {"name": "DBS Group",          "sector": "Banking",          "pe": 10.2, "book": 19.20, "roe": 0.180, "dps": 2.16, "beta": 0.85},
-    "U11.SI": {"name": "UOB",                "sector": "Banking",          "pe": 9.5,  "book": 25.10, "roe": 0.130, "dps": 1.70, "beta": 0.80},
-    # REITs
-    "C38U.SI": {"name": "CapitaLand Int. REIT", "sector": "REIT - Retail", "pe": 18.5, "book": 2.10,  "roe": 0.055, "dps": 0.108, "beta": 0.70},
-    "A17U.SI": {"name": "CapitaLand Ascendas REIT", "sector": "REIT - Industrial", "pe": 20.1, "book": 1.85, "roe": 0.050, "dps": 0.153, "beta": 0.65},
-    "ME8U.SI": {"name": "Mapletree Ind. Trust", "sector": "REIT - Industrial", "pe": 17.8, "book": 1.75, "roe": 0.052, "dps": 0.134, "beta": 0.68},
-    "M44U.SI": {"name": "Mapletree Log. Trust", "sector": "REIT - Industrial", "pe": 16.5, "book": 1.42, "roe": 0.048, "dps": 0.090, "beta": 0.62},
-    "N2IU.SI": {"name": "Mapletree Pan Asia REIT", "sector": "REIT - Diversified", "pe": 15.2, "book": 1.55, "roe": 0.045, "dps": 0.085, "beta": 0.70},
-    "BUOU.SI": {"name": "Frasers L&I Trust",  "sector": "REIT - Industrial", "pe": 14.8, "book": 1.10, "roe": 0.047, "dps": 0.076, "beta": 0.65},
-    "J91U.SI": {"name": "Parkway Life REIT",  "sector": "REIT - Healthcare", "pe": 22.0, "book": 2.35, "roe": 0.060, "dps": 0.142, "beta": 0.45},
-    # Telcos / Others
-    "Z74.SI":  {"name": "Singtel",            "sector": "Telecom",          "pe": 22.0, "book": 1.85,  "roe": 0.062, "dps": 0.15,  "beta": 0.55},
-    "BN4.SI":  {"name": "Keppel Corp",        "sector": "Industrials",      "pe": 12.5, "book": 6.20,  "roe": 0.095, "dps": 0.33,  "beta": 0.90},
-    "Y92.SI":  {"name": "Thai Bev",           "sector": "Consumer Staples", "pe": 14.2, "book": 0.52,  "roe": 0.120, "dps": 0.045, "beta": 0.60},
-    # US stocks (Yahoo works fine but added for completeness)
-    "O":    {"name": "Realty Income",         "sector": "REIT - Retail",    "pe": 42.0, "book": 16.50, "roe": 0.030, "dps": 3.07,  "beta": 0.85},
+    # ── SGX Banks ─────────────────────────────────────────────────────────────
+    "O39.SI": {"name": "OCBC Bank",              "sector": "Banking",           "pe": 11.9, "book": 9.80,  "roe": 0.135, "dps": 0.88,  "beta": 0.75, "fcf_per_share": None},
+    "D05.SI": {"name": "DBS Group",              "sector": "Banking",           "pe": 11.2, "book": 19.20, "roe": 0.180, "dps": 2.16,  "beta": 0.85, "fcf_per_share": None},
+    "U11.SI": {"name": "UOB",                    "sector": "Banking",           "pe": 10.5, "book": 25.10, "roe": 0.130, "dps": 1.70,  "beta": 0.80, "fcf_per_share": None},
+    # ── SGX REITs ─────────────────────────────────────────────────────────────
+    "C38U.SI": {"name": "CapitaLand Int. REIT",  "sector": "REIT - Retail",     "pe": 18.5, "book": 2.10,  "roe": 0.055, "dps": 0.108, "beta": 0.70, "fcf_per_share": None},
+    "A17U.SI": {"name": "CapitaLand Ascendas",   "sector": "REIT - Industrial", "pe": 20.1, "book": 1.85,  "roe": 0.050, "dps": 0.153, "beta": 0.65, "fcf_per_share": None},
+    "ME8U.SI": {"name": "Mapletree Ind. Trust",  "sector": "REIT - Industrial", "pe": 17.8, "book": 1.75,  "roe": 0.052, "dps": 0.134, "beta": 0.68, "fcf_per_share": None},
+    "M44U.SI": {"name": "Mapletree Log. Trust",  "sector": "REIT - Industrial", "pe": 16.5, "book": 1.42,  "roe": 0.048, "dps": 0.090, "beta": 0.62, "fcf_per_share": None},
+    "N2IU.SI": {"name": "Mapletree Pan Asia",    "sector": "REIT - Diversified","pe": 15.2, "book": 1.55,  "roe": 0.045, "dps": 0.085, "beta": 0.70, "fcf_per_share": None},
+    "BUOU.SI": {"name": "Frasers L&I Trust",     "sector": "REIT - Industrial", "pe": 14.8, "book": 1.10,  "roe": 0.047, "dps": 0.076, "beta": 0.65, "fcf_per_share": None},
+    "J91U.SI": {"name": "Parkway Life REIT",     "sector": "REIT - Healthcare", "pe": 22.0, "book": 2.35,  "roe": 0.060, "dps": 0.142, "beta": 0.45, "fcf_per_share": None},
+    "Z74.SI":  {"name": "Singtel",               "sector": "Telecom",           "pe": 22.0, "book": 1.85,  "roe": 0.062, "dps": 0.150, "beta": 0.55, "fcf_per_share": 0.12},
+    "BN4.SI":  {"name": "Keppel Corp",           "sector": "Industrials",       "pe": 12.5, "book": 6.20,  "roe": 0.095, "dps": 0.330, "beta": 0.90, "fcf_per_share": 0.45},
+    "Y92.SI":  {"name": "Thai Bev",              "sector": "Consumer Staples",  "pe": 14.2, "book": 0.52,  "roe": 0.120, "dps": 0.045, "beta": 0.60, "fcf_per_share": 0.04},
+    # ── US REITs ──────────────────────────────────────────────────────────────
+    "O":    {"name": "Realty Income",            "sector": "REIT - Retail",     "pe": 42.0, "book": 16.50, "roe": 0.030, "dps": 3.07,  "beta": 0.85, "fcf_per_share": 3.20},
+    "PLD":  {"name": "Prologis",                 "sector": "REIT - Industrial", "pe": 35.0, "book": 52.00, "roe": 0.045, "dps": 3.84,  "beta": 0.90, "fcf_per_share": 4.10},
+    "AMT":  {"name": "American Tower",           "sector": "REIT - Telecom",    "pe": 40.0, "book": 5.00,  "roe": 0.080, "dps": 6.48,  "beta": 0.85, "fcf_per_share": 7.20},
+    # ── US Big Tech ───────────────────────────────────────────────────────────
+    # FCF/share = Annual FCF ÷ diluted shares outstanding (FY2024 actuals)
+    "AAPL":  {"name": "Apple Inc.",              "sector": "Technology",        "pe": 33.0, "book": 4.00,  "roe": 1.600, "dps": 1.00,  "beta": 1.20, "fcf_per_share": 6.90},
+    # Apple FY2024: FCF ~$108B ÷ 15.4B shares = $6.90/share; EPS $6.11
+    "MSFT":  {"name": "Microsoft Corp",          "sector": "Technology",        "pe": 35.0, "book": 36.00, "roe": 0.380, "dps": 3.00,  "beta": 0.90, "fcf_per_share": 11.00},
+    # MSFT FY2024: FCF ~$74B ÷ 7.4B shares = ~$10-11/share
+    "GOOGL": {"name": "Alphabet Inc. (Google)",  "sector": "Technology",        "pe": 20.0, "book": 24.00, "roe": 0.357, "dps": 0.00,  "beta": 1.13, "fcf_per_share": 6.05},
+    # GOOGL FY2024: FCF $73.3B ÷ 12.1B shares = $6.05/share; EPS $10.80
+    "GOOG":  {"name": "Alphabet Inc. (Google)",  "sector": "Technology",        "pe": 20.0, "book": 24.00, "roe": 0.357, "dps": 0.00,  "beta": 1.13, "fcf_per_share": 6.05},
+    "AMZN":  {"name": "Amazon.com Inc.",         "sector": "Technology",        "pe": 38.0, "book": 22.00, "roe": 0.230, "dps": 0.00,  "beta": 1.30, "fcf_per_share": 4.80},
+    # AMZN FY2024: FCF ~$50B ÷ 10.6B shares = ~$4.80/share
+    "META":  {"name": "Meta Platforms",          "sector": "Technology",        "pe": 28.0, "book": 26.00, "roe": 0.340, "dps": 2.00,  "beta": 1.25, "fcf_per_share": 19.80},
+    # META FY2024: FCF ~$52B ÷ 2.56B shares = ~$19.80/share
+    "NVDA":  {"name": "NVIDIA Corp",             "sector": "Technology",        "pe": 55.0, "book": 4.00,  "roe": 0.730, "dps": 0.16,  "beta": 1.70, "fcf_per_share": 1.70},
+    # NVDA FY2025: FCF ~$42B ÷ 24.4B shares = ~$1.70/share (post 10:1 split)
+    "TSLA":  {"name": "Tesla Inc.",              "sector": "Automotive/Tech",   "pe": 120.0,"book": 20.00, "roe": 0.110, "dps": 0.00,  "beta": 2.30, "fcf_per_share": 0.90},
+    # ── US Banks ──────────────────────────────────────────────────────────────
+    "JPM":   {"name": "JPMorgan Chase",          "sector": "Banking",           "pe": 13.0, "book": 105.0, "roe": 0.170, "dps": 4.60,  "beta": 1.10, "fcf_per_share": None},
+    "BAC":   {"name": "Bank of America",         "sector": "Banking",           "pe": 14.0, "book": 35.00, "roe": 0.095, "dps": 1.00,  "beta": 1.35, "fcf_per_share": None},
+    "WFC":   {"name": "Wells Fargo",             "sector": "Banking",           "pe": 13.0, "book": 52.00, "roe": 0.115, "dps": 1.40,  "beta": 1.15, "fcf_per_share": None},
+    # ── US Consumer / Other ───────────────────────────────────────────────────
+    "KO":    {"name": "Coca-Cola",               "sector": "Consumer Staples",  "pe": 27.0, "book": 6.00,  "roe": 0.420, "dps": 1.94,  "beta": 0.55, "fcf_per_share": 2.30},
+    "JNJ":   {"name": "Johnson & Johnson",       "sector": "Healthcare",        "pe": 15.0, "book": 26.00, "roe": 0.220, "dps": 4.96,  "beta": 0.55, "fcf_per_share": 7.50},
+    "V":     {"name": "Visa Inc.",               "sector": "Financials",        "pe": 33.0, "book": 18.00, "roe": 0.520, "dps": 2.08,  "beta": 0.95, "fcf_per_share": 10.50},
+    "MA":    {"name": "Mastercard",              "sector": "Financials",        "pe": 38.0, "book": 8.00,  "roe": 2.000, "dps": 2.64,  "beta": 1.05, "fcf_per_share": 12.00},
+    "BRK.B": {"name": "Berkshire Hathaway B",   "sector": "Diversified",       "pe": 22.0, "book": 230.0, "roe": 0.140, "dps": 0.00,  "beta": 0.90, "fcf_per_share": 15.00},
 }
 
 
@@ -1248,30 +1276,68 @@ elif asset_type == "Company (DCF)":
 
     col_l, col_r = st.columns([1, 1], gap="large")
 
+    # Auto-populate FCF from lookup table, then EPS fallback
+    _ref = SGX_DATA.get(ticker, {})
+    _fcf_default = _ref.get("fcf_per_share")  # None if not in table
+
+    # Fallback: use EPS from live data as FCF proxy (conservative but directionally correct)
+    if not _fcf_default and data:
+        _eps = data.get("eps")
+        if _eps and _eps > 0:
+            _fcf_default = round(_eps * 0.85, 2)  # FCF typically ~85% of EPS for quality companies
+
+    # Last resort: price/30 gives a rough P/FCF of 30x as starting point
+    _price_default = float(data.get("price") or 50.0) if data and data.get("price") else 50.0
+    if not _fcf_default:
+        _fcf_default = round(_price_default / 30, 2)  # assumes 30x P/FCF as placeholder
+
+    # Set sensible growth defaults based on sector
+    _sector = (data.get("sector") or _ref.get("sector") or "").lower()
+    if "tech" in _sector or ticker in ["NVDA","META","AMZN","GOOGL","GOOG","MSFT","AAPL"]:
+        _g_bear, _g_base, _g_bull = 5.0, 12.0, 20.0
+        _wacc_bear, _wacc_base, _wacc_bull = 12.0, 10.0, 8.0
+    elif "bank" in _sector or "financ" in _sector:
+        _g_bear, _g_base, _g_bull = 2.0, 5.0, 8.0
+        _wacc_bear, _wacc_base, _wacc_bull = 11.0, 9.0, 7.5
+    elif "reit" in _sector:
+        _g_bear, _g_base, _g_bull = 1.0, 3.0, 5.0
+        _wacc_bear, _wacc_base, _wacc_bull = 9.0, 7.5, 6.0
+    elif "consumer" in _sector or "staple" in _sector:
+        _g_bear, _g_base, _g_bull = 2.0, 5.0, 8.0
+        _wacc_bear, _wacc_base, _wacc_bull = 10.0, 8.5, 7.0
+    else:
+        _g_bear, _g_base, _g_bull = 3.0, 8.0, 14.0
+        _wacc_bear, _wacc_base, _wacc_bull = 12.0, 9.0, 7.0
+
     with col_l:
         st.markdown("**Fundamentals**")
-        fcf = st.number_input("Free Cash Flow per share (annual, $)", value=2.50, step=0.10, format="%.2f",
-                              help="FCF = Operating Cash Flow − Capex. Divide by shares outstanding.")
-        current_price = st.number_input("Current price (override)", value=float(data.get("price") or 50.0) if data and data.get("price") else 50.0,
-                                        step=0.50, format="%.2f")
+        if _ref.get("fcf_per_share"):
+            st.caption(f"✅ FCF/share loaded from reference data for {ticker}. Verify against latest annual report.")
+        elif data and data.get("eps") and data.get("eps", 0) > 0:
+            st.caption(f"⚡ FCF estimated from live EPS (${data.get('eps'):.2f} × 85%). Adjust if you have the exact FCF from the annual report.")
+        else:
+            st.caption(f"ℹ️ Enter FCF/share manually: find it in the annual report → Cash Flow Statement → Free Cash Flow ÷ shares outstanding.")
+        fcf = st.number_input("Free Cash Flow per share (annual, $)", value=float(_fcf_default), step=0.10, format="%.2f",
+                              help="FCF = Operating Cash Flow − Capex ÷ shares outstanding. Find in annual report cash flow statement.")
+        current_price = st.number_input("Current price (override)", value=_price_default, step=0.50, format="%.2f")
         years = st.slider("Projection period (years)", 5, 15, 10)
         terminal_g = st.slider("Terminal growth rate (%)", 0.5, 4.0, 2.5, 0.1,
-                               help="Long-run GDP growth. Very sensitive — stress-test this carefully.")
-
-        st.warning(f"⚠️ Changing terminal growth by 0.5% can move fair value by 20–30%. This is your biggest risk.")
+                               help="Long-run GDP growth rate. 2.0–2.5% is standard. Never use above 3.5%.")
+        st.warning("⚠️ Terminal growth rate is the most sensitive input — a 0.5% change moves fair value by 20–30%.")
 
     with col_r:
         st.markdown("**FCF Growth by scenario**")
-        g_bear = st.slider("Bear FCF growth (%/yr)", -5.0, 15.0, 3.0, 0.5)
-        g_base = st.slider("Base FCF growth (%/yr)", 0.0, 25.0, 8.0, 0.5)
-        g_bull = st.slider("Bull FCF growth (%/yr)", 5.0, 35.0, 14.0, 0.5)
+        st.caption(f"Pre-set for {data.get('sector') or _ref.get('sector','this sector')} — adjust if needed")
+        g_bear = st.slider("Bear FCF growth (%/yr)", -5.0, 20.0, _g_bear, 0.5)
+        g_base = st.slider("Base FCF growth (%/yr)", 0.0, 30.0, _g_base, 0.5)
+        g_bull = st.slider("Bull FCF growth (%/yr)", 5.0, 40.0, _g_bull, 0.5)
 
         st.markdown("**WACC / Discount Rate by scenario**")
-        st.caption("WACC = weighted cost of capital. Higher rate → lower fair value.")
-        wacc_bear = st.slider("Bear WACC (%)", 8.0, 18.0, 12.0, 0.5,
-                              help="Stressed environment: high rates, high risk premium")
-        wacc_base = st.slider("Base WACC (%)", 6.0, 15.0, 9.0, 0.5)
-        wacc_bull = st.slider("Bull WACC (%)", 4.0, 12.0, 7.0, 0.5)
+        st.caption("WACC = cost of capital. US stocks typically 8–12%. SGX stocks 7–10%.")
+        wacc_bear = st.slider("Bear WACC (%)", 8.0, 18.0, _wacc_bear, 0.5,
+                              help="Stressed: high rates, high risk premium")
+        wacc_base = st.slider("Base WACC (%)", 6.0, 15.0, _wacc_base, 0.5)
+        wacc_bull = st.slider("Bull WACC (%)", 4.0, 12.0, _wacc_bull, 0.5)
 
     dcf_results = dcf_price(fcf, g_bear, g_base, g_bull,
                             wacc_bear, wacc_base, wacc_bull,
