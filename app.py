@@ -68,18 +68,18 @@ SGX_DATA = {
     "AMT":  {"name": "American Tower",           "sector": "REIT - Telecom",    "pe": 40.0, "book": 5.00,  "roe": 0.080, "dps": 6.48,  "beta": 0.85, "fcf_per_share": 7.20},
     # ── US Big Tech ───────────────────────────────────────────────────────────
     # FCF/share = Annual FCF ÷ diluted shares outstanding (FY2024 actuals)
-    "AAPL":  {"name": "Apple Inc.",              "sector": "Technology",        "pe": 33.0, "book": 4.00,  "roe": 1.600, "dps": 1.00,  "beta": 1.20, "fcf_per_share": 6.90},
+    "AAPL":  {"name": "Apple Inc.",              "sector": "Technology",        "pe": 33.0, "book": 4.00,  "roe": 1.600, "dps": 1.00,  "beta": 1.20, "fcf_per_share": 7.20, "fcf_g_bear": 5.0, "fcf_g_base": 10.0, "fcf_g_bull": 15.0, "wacc_bear": 11.0, "wacc_base": 9.0, "wacc_bull": 7.5},
     # Apple FY2024: FCF ~$108B ÷ 15.4B shares = $6.90/share; EPS $6.11
-    "MSFT":  {"name": "Microsoft Corp",          "sector": "Technology",        "pe": 35.0, "book": 36.00, "roe": 0.380, "dps": 3.00,  "beta": 0.90, "fcf_per_share": 11.00},
+    "MSFT":  {"name": "Microsoft Corp",          "sector": "Technology",        "pe": 35.0, "book": 36.00, "roe": 0.380, "dps": 3.00,  "beta": 0.90, "fcf_per_share": 12.50, "fcf_g_bear": 8.0, "fcf_g_base": 15.0, "fcf_g_bull": 22.0, "wacc_bear": 10.0, "wacc_base": 8.5, "wacc_bull": 7.0},
     # MSFT FY2024: FCF ~$74B ÷ 7.4B shares = ~$10-11/share
-    "GOOGL": {"name": "Alphabet Inc. (Google)",  "sector": "Technology",        "pe": 20.0, "book": 24.00, "roe": 0.357, "dps": 0.00,  "beta": 1.13, "fcf_per_share": 6.05},
+    "GOOGL": {"name": "Alphabet Inc. (Google)",  "sector": "Technology",        "pe": 22.0, "book": 24.00, "roe": 0.357, "dps": 0.00,  "beta": 1.13, "fcf_per_share": 6.05, "fcf_g_bear": 8.0, "fcf_g_base": 15.0, "fcf_g_bull": 22.0, "wacc_bear": 11.0, "wacc_base": 9.0, "wacc_bull": 7.5},
     # GOOGL FY2024: FCF $73.3B ÷ 12.1B shares = $6.05/share; EPS $10.80
-    "GOOG":  {"name": "Alphabet Inc. (Google)",  "sector": "Technology",        "pe": 20.0, "book": 24.00, "roe": 0.357, "dps": 0.00,  "beta": 1.13, "fcf_per_share": 6.05},
-    "AMZN":  {"name": "Amazon.com Inc.",         "sector": "Technology",        "pe": 38.0, "book": 22.00, "roe": 0.230, "dps": 0.00,  "beta": 1.30, "fcf_per_share": 4.80},
+    "GOOG":  {"name": "Alphabet Inc. (Google)",  "sector": "Technology",        "pe": 22.0, "book": 24.00, "roe": 0.357, "dps": 0.00,  "beta": 1.13, "fcf_per_share": 6.05, "fcf_g_bear": 8.0, "fcf_g_base": 15.0, "fcf_g_bull": 22.0, "wacc_bear": 11.0, "wacc_base": 9.0, "wacc_bull": 7.5},
+    "AMZN":  {"name": "Amazon.com Inc.",         "sector": "Technology",        "pe": 38.0, "book": 22.00, "roe": 0.230, "dps": 0.00,  "beta": 1.30, "fcf_per_share": 5.50, "fcf_g_bear": 8.0, "fcf_g_base": 18.0, "fcf_g_bull": 28.0, "wacc_bear": 11.0, "wacc_base": 9.0, "wacc_bull": 7.5},
     # AMZN FY2024: FCF ~$50B ÷ 10.6B shares = ~$4.80/share
-    "META":  {"name": "Meta Platforms",          "sector": "Technology",        "pe": 28.0, "book": 26.00, "roe": 0.340, "dps": 2.00,  "beta": 1.25, "fcf_per_share": 19.80},
+    "META":  {"name": "Meta Platforms",          "sector": "Technology",        "pe": 28.0, "book": 26.00, "roe": 0.340, "dps": 2.00,  "beta": 1.25, "fcf_per_share": 22.00, "fcf_g_bear": 8.0, "fcf_g_base": 18.0, "fcf_g_bull": 28.0, "wacc_bear": 11.0, "wacc_base": 9.0, "wacc_bull": 7.5},
     # META FY2024: FCF ~$52B ÷ 2.56B shares = ~$19.80/share
-    "NVDA":  {"name": "NVIDIA Corp",             "sector": "Technology",        "pe": 55.0, "book": 4.00,  "roe": 0.730, "dps": 0.16,  "beta": 1.70, "fcf_per_share": 1.70},
+    "NVDA":  {"name": "NVIDIA Corp",             "sector": "Technology",        "pe": 40.0, "book": 4.00,  "roe": 0.730, "dps": 0.16,  "beta": 1.70, "fcf_per_share": 2.40, "fcf_g_bear": 10.0, "fcf_g_base": 25.0, "fcf_g_bull": 40.0, "wacc_bear": 12.0, "wacc_base": 10.0, "wacc_bull": 8.0},
     # NVDA FY2025: FCF ~$42B ÷ 24.4B shares = ~$1.70/share (post 10:1 split)
     "TSLA":  {"name": "Tesla Inc.",              "sector": "Automotive/Tech",   "pe": 120.0,"book": 20.00, "roe": 0.110, "dps": 0.00,  "beta": 2.30, "fcf_per_share": 0.90},
     # ── US Banks ──────────────────────────────────────────────────────────────
@@ -1149,6 +1149,28 @@ if asset_type == "REIT":
 
 **Buy zone**: price at or below bear case fair value = maximum margin of safety.
         """)
+    # ── Analysis ─────────────────────────────────────────────────────────────
+    _bs_reit = fetch_buy_sell_pressure(ticker)
+    _sig_reit, _ = signal(current_price, ffo_results.get("Bear",0), ffo_results.get("Bull",0)) if ffo_results.get("Bear") and ffo_results.get("Bull") else ("—", "")
+    _hist_reit = fetch_price_history(ticker, api_key=st.session_state.get("finnhub_key",""))
+    _dib_reit = int((_hist_reit["Close"] <= ffo_results.get("Bear",0)).sum()) if _hist_reit is not None and not _hist_reit.empty and ffo_results.get("Bear") else 0
+    _dih_reit = int(((_hist_reit["Close"] > ffo_results.get("Bear",0)) & (_hist_reit["Close"] <= ffo_results.get("Base",0))).sum()) if _hist_reit is not None and not _hist_reit.empty and ffo_results.get("Bear") and ffo_results.get("Base") else 0
+    _dat_reit = int((_hist_reit["Close"] > ffo_results.get("Bull",0)).sum()) if _hist_reit is not None and not _hist_reit.empty and ffo_results.get("Bull") else 0
+    _dtot_reit = len(_hist_reit) if _hist_reit is not None and not _hist_reit.empty else 502
+    render_ai_analysis(
+        ticker=ticker, asset_type=asset_type, current_price=current_price,
+        bear=ffo_results.get("Bear",0), base=ffo_results.get("Base",0), bull=ffo_results.get("Bull",0),
+        sector=data.get("sector","—") if data else "—",
+        pe=data.get("pe") if data else None,
+        roe=data.get("roe") if data else None,
+        book=data.get("book") if data else None,
+        dps=dpu, beta=data.get("beta") if data else None,
+        buy_pct=_bs_reit.get("buy_pct",50) if _bs_reit else 50,
+        range_pos=_bs_reit.get("range_pos",50) if _bs_reit else 50,
+        days_in_buy=_dib_reit, days_in_hold=_dih_reit, days_above_sell=_dat_reit, days_total=_dtot_reit,
+        signal_text=_sig_reit
+    )
+
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1291,10 +1313,18 @@ elif asset_type == "Company (DCF)":
     if not _fcf_default:
         _fcf_default = round(_price_default / 30, 2)  # assumes 30x P/FCF as placeholder
 
-    # Set sensible growth defaults based on sector
+    # Use per-stock growth/WACC if in lookup table, else sector defaults
     _sector = (data.get("sector") or _ref.get("sector") or "").lower()
-    if "tech" in _sector or ticker in ["NVDA","META","AMZN","GOOGL","GOOG","MSFT","AAPL"]:
-        _g_bear, _g_base, _g_bull = 5.0, 12.0, 20.0
+    if _ref.get("fcf_g_base"):
+        # Use stock-specific assumptions from lookup table
+        _g_bear  = _ref.get("fcf_g_bear", 5.0)
+        _g_base  = _ref.get("fcf_g_base", 12.0)
+        _g_bull  = _ref.get("fcf_g_bull", 20.0)
+        _wacc_bear = _ref.get("wacc_bear", 11.0)
+        _wacc_base = _ref.get("wacc_base", 9.0)
+        _wacc_bull = _ref.get("wacc_bull", 7.5)
+    elif "tech" in _sector:
+        _g_bear, _g_base, _g_bull = 5.0, 15.0, 25.0
         _wacc_bear, _wacc_base, _wacc_bull = 12.0, 10.0, 8.0
     elif "bank" in _sector or "financ" in _sector:
         _g_bear, _g_base, _g_bull = 2.0, 5.0, 8.0
@@ -1397,6 +1427,29 @@ elif asset_type == "Company (DCF)":
 
 **Buy rule**: only buy at or below your *bear case* — that gives you margin of safety even if the bad scenario plays out.
         """)
+    # ── Analysis ─────────────────────────────────────────────────────────────
+    _bs_dcf = fetch_buy_sell_pressure(ticker)
+    _sig_dcf, _ = signal(current_price, dcf_results.get("Bear",0), dcf_results.get("Bull",0)) if dcf_results.get("Bear") and dcf_results.get("Bull") else ("—", "")
+    _hist_dcf = fetch_price_history(ticker, api_key=st.session_state.get("finnhub_key",""))
+    _dib_dcf = int((_hist_dcf["Close"] <= dcf_results.get("Bear",0)).sum()) if _hist_dcf is not None and not _hist_dcf.empty and dcf_results.get("Bear") else 0
+    _dih_dcf = int(((_hist_dcf["Close"] > dcf_results.get("Bear",0)) & (_hist_dcf["Close"] <= dcf_results.get("Base",0))).sum()) if _hist_dcf is not None and not _hist_dcf.empty and dcf_results.get("Bear") and dcf_results.get("Base") else 0
+    _dat_dcf = int((_hist_dcf["Close"] > dcf_results.get("Bull",0)).sum()) if _hist_dcf is not None and not _hist_dcf.empty and dcf_results.get("Bull") else 0
+    _dtot_dcf = len(_hist_dcf) if _hist_dcf is not None and not _hist_dcf.empty else 502
+    _roe_dcf = data.get("roe") if data else None
+    render_ai_analysis(
+        ticker=ticker, asset_type=asset_type, current_price=current_price,
+        bear=dcf_results.get("Bear",0), base=dcf_results.get("Base",0), bull=dcf_results.get("Bull",0),
+        sector=data.get("sector","—") if data else "—",
+        pe=data.get("pe") if data else None,
+        roe=_roe_dcf, book=data.get("book") if data else None,
+        dps=data.get("dps") if data else None,
+        beta=data.get("beta") if data else None,
+        buy_pct=_bs_dcf.get("buy_pct",50) if _bs_dcf else 50,
+        range_pos=_bs_dcf.get("range_pos",50) if _bs_dcf else 50,
+        days_in_buy=_dib_dcf, days_in_hold=_dih_dcf, days_above_sell=_dat_dcf, days_total=_dtot_dcf,
+        signal_text=_sig_dcf
+    )
+
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1484,6 +1537,34 @@ Works best when:
 - High payout ratios (>90%) with high growth assumptions are often unsustainable
 - DDM understates value for companies that retain and reinvest earnings well (use DCF instead)
         """)
+    # ── Analysis ─────────────────────────────────────────────────────────────
+    _bs_ddm = fetch_buy_sell_pressure(ticker)
+    _bv_ddm = ddm_results.get("Bear")
+    _base_ddm = ddm_results.get("Base")
+    _bull_ddm = ddm_results.get("Bull")
+    if _bv_ddm and _bull_ddm:
+        _sig_ddm, _ = signal(current_price, _bv_ddm, _bull_ddm)
+    else:
+        _sig_ddm = "—"
+    _hist_ddm = fetch_price_history(ticker, api_key=st.session_state.get("finnhub_key",""))
+    _dib_ddm = int((_hist_ddm["Close"] <= _bv_ddm).sum()) if _hist_ddm is not None and not _hist_ddm.empty and _bv_ddm else 0
+    _dih_ddm = int(((_hist_ddm["Close"] > _bv_ddm) & (_hist_ddm["Close"] <= _base_ddm)).sum()) if _hist_ddm is not None and not _hist_ddm.empty and _bv_ddm and _base_ddm else 0
+    _dat_ddm = int((_hist_ddm["Close"] > _bull_ddm).sum()) if _hist_ddm is not None and not _hist_ddm.empty and _bull_ddm else 0
+    _dtot_ddm = len(_hist_ddm) if _hist_ddm is not None and not _hist_ddm.empty else 502
+    render_ai_analysis(
+        ticker=ticker, asset_type=asset_type, current_price=current_price,
+        bear=_bv_ddm or 0, base=_base_ddm or 0, bull=_bull_ddm or 0,
+        sector=data.get("sector","—") if data else "—",
+        pe=data.get("pe") if data else None,
+        roe=data.get("roe") if data else None,
+        book=data.get("book") if data else None,
+        dps=dps_val, beta=data.get("beta") if data else None,
+        buy_pct=_bs_ddm.get("buy_pct",50) if _bs_ddm else 50,
+        range_pos=_bs_ddm.get("range_pos",50) if _bs_ddm else 50,
+        days_in_buy=_dib_ddm, days_in_hold=_dih_ddm, days_above_sell=_dat_ddm, days_total=_dtot_ddm,
+        signal_text=_sig_ddm
+    )
+
 
 
 # ── Footer ────────────────────────────────────────────────────────────────────
